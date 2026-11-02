@@ -597,7 +597,7 @@
     const f = host.querySelector('#adminPass'); if (f && !host.contains(document.activeElement)) f.focus();
   }
   // ---------- 辦公環境規劃（js/plan.js，整理自會議結論；待老闆裁示）----------
-  const APPROVED_ZH = v => v === true ? ['核准', 'st-done'] : v === false ? ['不做', 'st-declined'] : ['待裁示', 'st-new'];
+  const APPROVED_ZH = v => v === true ? ['核准', 'st-done'] : v === false ? ['不做', 'st-declined'] : v === 'later' ? ['暫緩', 'st-received'] : ['待裁示', 'st-new'];
   function renderPlanDrawer(m) {
     const P = PLAN, host = $('drawerHost');
     const closeBtn = el('button', { class: 'close', type: 'button', 'aria-label': '關閉', onclick: closeDrawer }, '×');

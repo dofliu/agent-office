@@ -22,6 +22,7 @@
 | 2026-11-02 | 3D 加入大螢幕（工作狀態／風機螢幕保護）、會議室投影幕、茶水間設備動作；名牌精簡成「狀態點＋短名」膠囊；手機全螢幕模式。 |
 | 2026-11-03 | **搬到本 repo＋GitHub Pages**。因為 Pages 沒有 Artifact 的連接器，改用 **Google Apps Script** 當資料來源（GET 公開讀取彙整 JSON）。 |
 | 2026-11-03 | 加入**管理模式**：Apps Script `doPost`＋指令碼屬性 `ADMIN_KEY`，看板右上角「管理登入」後可寫入。修正發起會議時勾選人數與主持人選單不更新；加全選／清除。 |
+| 2026-11-03 | 加入 **3D 互動**：點人物下動作（打招呼、去茶水間、開會、白板、巡檢、回座位）、點設備操作或叫人來用，附對話泡泡與設備蒸氣效果；只在畫面上播放，不寫入雲端。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
 
@@ -83,6 +84,7 @@ GitHub Pages：index.html
 - **樓層配置**（`buildFloor()`）：走廊南側是 `officeTeams` 各一間辦公室（每 4 人一組桌，自動加組），北側是會議室、茶水間、共用座位（有其他 TEAM 才出現）。桌椅、白板、飲水機從 001 場景 glb 複製；會議室與茶水間直接用 002、004 的 glb，牆壓低到 1 m。
 - **場景來源**：`config.sceneBase` = `https://raw.githubusercontent.com/dofliu/indoor-scenes/main/`（indoor-scenes 已公開）。場景用二進位 `.glb`；座標 Blender Z-up → three `(x, z, -y)`。indoor-scenes 的檔名或錨點命名改了，這裡會壞。
 - **名牌**：只顯示狀態點＋短名（老師要求精簡），詳細資訊在側欄。
+- **互動（只在本機畫面播放，不寫入雲端）**：點人物出現動作選單（查看紀錄與指令、打招呼、伸懶腰、去茶水間、去會議室、到白板前、巡一圈、回座位工作、停止回到自動）；點設備（茶水間的咖啡機／微波爐／冰箱／販賣機／水槽、各辦公室與會議室的飲水機）可直接啟動（發光、冒蒸氣、完成時冒泡泡如「叮！」），或「叫人來用」挑一位代理人走過去用。實作在 `office.js` 的 `DEV`、`addDevice()`、`planFor()`／`command()`（`ag.ov` 是一串步驟，做完回到資料驅動的狀態；資料更新時若正在被指揮，先做完再換狀態）。投影幕仍是點了開會議。`window.cloudlogOffice.command(key, kind)` 可從外部觸發。
 - **管理模式**：密碼存在瀏覽器 localStorage `agentoffice.adminKey`；未登入時所有寫入 UI 都不顯示。寫入流程是 `api(action, payload)` 以 `text/plain` POST（避免 CORS 預檢），由 Apps Script 產生 ID、時間與檔名。
 
 ## 6. Apps Script（`apps-script/Code.gs`）
@@ -112,4 +114,4 @@ GitHub Pages：index.html
 - 辦公室每間依人數自動加桌組；人數很多時樓層會變寬，手機上人物會變小。
 - `MAX_DAYS` 以外的舊紀錄不會出現在看板上。
 - 雲端紀錄裡有一筆 TEAM 誤填為 `DofPJ`（應為 NCUT_PJ），老師可在管理模式自行改正。
-- 可以考慮的下一步：會議發言在 3D 裡以對話泡泡顯示、會議結論頁、指令逾期提醒、讓技能支援在對話中直接「發起會議」。
+- 可以考慮的下一步：會議發言在 3D 裡以對話泡泡顯示（泡泡元件 `makeBubble()` 已有）、會議結論頁、指令逾期提醒、讓技能支援在對話中直接「發起會議」。

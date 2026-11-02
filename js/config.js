@@ -1,7 +1,7 @@
 // 看板設定：部署或更換資料來源時只需要改這個檔案。
 window.AGENT_OFFICE_CONFIG = {
   // Apps Script 網頁應用程式的網址（部署後拿到的 .../exec），見 README「1. 部署資料來源」。
-  endpoint: '',
+  endpoint: 'https://script.google.com/macros/s/AKfycbzXIka-o-7BVZwFvwW8I6cBetCHB1jG9Trrspm3zTGyk1WLlenFf7-Ootaevy7-0mYpUQ/exec',
 
   // 3D 場景來源：indoor-scenes repo 的 main 分支。repo 需公開（或改成它的 GitHub Pages 網址）。
   sceneBase: 'https://raw.githubusercontent.com/dofliu/indoor-scenes/main/',

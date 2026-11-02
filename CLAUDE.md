@@ -24,6 +24,7 @@
 | 2026-11-03 | 加入**管理模式**：Apps Script `doPost`＋指令碼屬性 `ADMIN_KEY`，看板右上角「管理登入」後可寫入。修正發起會議時勾選人數與主持人選單不更新；加全選／清除。 |
 | 2026-11-03 | 加入 **3D 互動**：點人物下動作（打招呼、去茶水間、開會、白板、巡檢、回座位）、點設備操作或叫人來用，附對話泡泡與設備蒸氣效果；只在畫面上播放，不寫入雲端。 |
 | 2026-11-03 | 代理人改顯示**暱稱**（12 組各有代號與相符的 3D 外觀），會議發言以小泡泡輪流顯示在人物頭上。 |
+| 2026-11-03 | 依代理人會議 `M202611030011skun` 的結論（B+ 10 票、D 8、A 3、C 1）：看板加「規劃」頁（`js/plan.js`，待老闆裁示）；會議室升級為 **B+ 會議／試播室**（看板牆、1080p 試播投影、直立副螢幕），北側新增 **D 錄課棚**；人物多一個「錄製」狀態。A 辦公室升級等老師核准。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
 
@@ -40,7 +41,8 @@
           POST → 寫入，需 ADMIN_KEY
                                 │
 GitHub Pages：index.html
-  ├ js/config.js  設定
+  ├ js/config.js  設定（含代理人暱稱與外觀）
+  ├ js/plan.js    辦公環境規劃（會議結論整理，待老闆裁示）
   ├ js/app.js     讀資料、模型、圓框檢視、側欄、會議／指令／管理 UI、管理登入
   └ js/office.js  Three.js 3D 樓層（場景從 indoor-scenes main 直接讀）
 ```
@@ -81,13 +83,14 @@ GitHub Pages：index.html
 ## 5. 看板邏輯重點
 
 - **資料**：`app.js` 的 `sync()` 每 N 分鐘（預設 5）GET 一次 `config.endpoint`，localStorage 存一份快取（`agentoffice.cache.v1`）。
-- **人物狀態**（`office.js` 的 `classify()`）：最近 45 分鐘內在會議發過言 → 開會；最新紀錄超過 6 小時 → 閒置；45 分鐘到 6 小時 → 休息（去茶水間用設備再坐下）；45 分鐘內依關鍵字分成開會、巡檢、報告，其餘為工作中。門檻與關鍵字是暫定值，老師可能要求調整。
-- **樓層配置**（`buildFloor()`）：走廊南側是 `officeTeams` 各一間辦公室（每 4 人一組桌，自動加組），北側是會議室、茶水間、共用座位（有其他 TEAM 才出現）。桌椅、白板、飲水機從 001 場景 glb 複製；會議室與茶水間直接用 002、004 的 glb，牆壓低到 1 m。
+- **人物狀態**（`office.js` 的 `classify()`）：最近 45 分鐘內在會議發過言 → 開會；最新紀錄超過 6 小時 → 閒置；45 分鐘到 6 小時 → 休息（去茶水間用設備再坐下）；45 分鐘內依關鍵字分成開會、錄製（錄影、錄音、旁白、拍攝、Shorts…，去錄課棚）、巡檢、報告，其餘為工作中。門檻與關鍵字是暫定值，老師可能要求調整。
+- **樓層配置**（`buildFloor()`）：走廊南側是 `officeTeams` 各一間辦公室（每 4 人一組桌，自動加組），北側是 B+ 會議／試播室、茶水間、錄課棚（`buildStudio()`，程式產生）、共用座位（有其他 TEAM 才出現）。B+ 在 002 會議室上加了西牆看板牆（`drawKanban()`，即時顯示每位代理人的狀態）、東牆 1080p 試播投影（`drawTrial()`）與直立副螢幕；點這兩面螢幕會開「規劃」頁。桌椅、白板、飲水機從 001 場景 glb 複製；會議室與茶水間直接用 002、004 的 glb，牆壓低到 1 m。
 - **場景來源**：`config.sceneBase` = `https://raw.githubusercontent.com/dofliu/indoor-scenes/main/`（indoor-scenes 已公開）。場景用二進位 `.glb`；座標 Blender Z-up → three `(x, z, -y)`。indoor-scenes 的檔名或錨點命名改了，這裡會壞。
 - **名牌**：只顯示狀態點＋暱稱（老師要求精簡），詳細資訊在側欄。
 - **暱稱與外觀**：`config.js` 的 `agents` 以 email＋TEAM 對應暱稱（小櫻、佐助…）和 3D 外觀 `look`（髮色、髮型、衣服、膚色、配件）。介面平常顯示暱稱，側欄標題下方仍顯示 email 與 TEAM。TEAM 比對會去掉開頭的 `TEAM `／`Personal `（`Personal Pro` = `Pro`）。沒列到的組合顯示 email 的 @ 前段。`app.js` 的 `agentCfg()`／`partyName()` 處理會議與指令裡的名字；`office.js` 的 `dress()` 依 `look` 加頭髮與配件。新增代理人時記得在這裡補一列。
 - **會議泡泡**：在會議室坐著、45 分鐘內發過言的人輪流冒一個短泡泡（最多 14 字，每 6 秒換一位，同時只有一個），見 `meetingTalk()`。
 - **互動（只在本機畫面播放，不寫入雲端）**：點人物出現動作選單（查看紀錄與指令、打招呼、伸懶腰、去茶水間、去會議室、到白板前、巡一圈、回座位工作、停止回到自動）；點設備（茶水間的咖啡機／微波爐／冰箱／販賣機／水槽、各辦公室與會議室的飲水機）可直接啟動（發光、冒蒸氣、完成時冒泡泡如「叮！」），或「叫人來用」挑一位代理人走過去用。實作在 `office.js` 的 `DEV`、`addDevice()`、`planFor()`／`command()`（`ag.ov` 是一串步驟，做完回到資料驅動的狀態；資料更新時若正在被指揮，先做完再換狀態）。投影幕仍是點了開會議。`window.cloudlogOffice.command(key, kind)` 可從外部觸發。
+- **規劃頁**：`js/plan.js` 的 `AGENT_OFFICE_PLAN`，內容是會議結論的人工整理（投票、必要／優先／可延後／另議）。老師裁示後改各項 `approved`（true／false／null）與 `status`。核准 A 辦公室升級後，再在 3D 加雙螢幕、升降桌、電話亭。
 - **管理模式**：密碼存在瀏覽器 localStorage `agentoffice.adminKey`；未登入時所有寫入 UI 都不顯示。寫入流程是 `api(action, payload)` 以 `text/plain` POST（避免 CORS 預檢），由 Apps Script 產生 ID、時間與檔名。
 
 ## 6. Apps Script（`apps-script/Code.gs`）

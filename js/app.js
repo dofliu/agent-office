@@ -2,6 +2,7 @@
 (() => {
   // Settings live in config.js (window.AGENT_OFFICE_CONFIG).
   const CFG = window.AGENT_OFFICE_CONFIG || {};
+  const PLAN = window.AGENT_OFFICE_PLAN || null;
   const LS_CACHE = 'agentoffice.cache.v1', LS_INT = 'cloudlog.interval', LS_TEAM = 'cloudlog.team', LS_KEY = 'agentoffice.adminKey';
   const HUES = ['--t0','--t1','--t2','--t3','--t4','--t5'];
 
@@ -31,6 +32,7 @@
   let view = lsGet('cloudlog.view') === 'bubbles' ? 'bubbles' : 'office';
   let manage = false, armedKey = null, armTimer = 0, opBusy = '', opMsg = null, fixTeam = '';
   let adminKey = lsGet(LS_KEY) || '', isAdmin = !!adminKey, adminOpen = false, adminMsg = null, adminBusy = false;
+  let planOpen = false;
   let openMeet = null, meetForm = null, teacherMsg = {}, cmdDraft = {}, sendBusy = '', sendMsg = null;
   let syncing = false, lastAttempt = 0, openAccount = null, blocked = false;
   let status = { kind: 'idle', text: '準備中…' };
@@ -217,6 +219,7 @@
     if (openAccount && !drawerTyping()) renderDrawer(m);
     if (openMeet && !drawerTyping()) renderMeetDrawer(m);
     if (adminOpen && !drawerTyping()) renderAdminDrawer();
+    if (planOpen) renderPlanDrawer(m);
     const ab = $('adminBtn'); if (ab) { ab.textContent = isAdmin ? '管理模式' : '管理登入'; ab.classList.toggle('on', isAdmin); }
     const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length; mb.textContent = n ? `會議 ${n}` : '會議'; mb.classList.toggle('hot', n > 0); }
   }
@@ -230,12 +233,14 @@
     o.style.setProperty('--oh', h + 'px');
   }
   $('meetBtn').addEventListener('click', () => openMeetings('list'));
+  function openPlan() { lastFocus = document.activeElement; adminOpen = false; openAccount = null; openMeet = null; planOpen = true; render(); }
+  if ($('planBtn')) { if (!PLAN) $('planBtn').hidden = true; else $('planBtn').addEventListener('click', openPlan); }
   $('adminBtn').addEventListener('click', openAdmin);
   const setFocus = on => { document.body.classList.toggle('focus', on); $('oFull').setAttribute('aria-pressed', String(on)); $('oFull').textContent = on ? '結束全螢幕' : '全螢幕'; lsSet('cloudlog.focus', on ? '1' : '0'); render(); if (on) $('office').scrollIntoView({ block: 'start' }); };
   $('oFull').addEventListener('click', () => setFocus(!document.body.classList.contains('focus')));
   if (lsGet('cloudlog.focus') === '1') document.body.classList.add('focus');
   for (const b of document.querySelectorAll('.views button')) b.addEventListener('click', () => { view = b.dataset.view; lsSet('cloudlog.view', view); render(); });
-  window.cloudlogBridge = { open: k => openDrawer(k), meetings: id => openMeetings(id), refresh: () => render(), name: p => partyName(p) };
+  window.cloudlogBridge = { open: k => openDrawer(k), meetings: id => openMeetings(id), plan: () => openPlan(), refresh: () => render(), name: p => partyName(p) };
 
   const MIN_SLOTS = 15;
   function layoutStage(n) {
@@ -288,11 +293,11 @@
 
   // ---------- drawer ----------
   let lastFocus = null;
-  function openDrawer(key) { lastFocus = document.activeElement; adminOpen = false; openMeet = null; sendMsg = null; openAccount = key; freshSet.delete(key); render(); }
-  function openAdmin() { lastFocus = document.activeElement; openAccount = null; openMeet = null; adminOpen = true; adminMsg = null; render(); }
-  function openMeetings(id) { lastFocus = document.activeElement; adminOpen = false; openAccount = null; openMeet = id || 'list'; sendMsg = null; render(); }
+  function openDrawer(key) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openMeet = null; sendMsg = null; openAccount = key; freshSet.delete(key); render(); }
+  function openAdmin() { lastFocus = document.activeElement; planOpen = false; openAccount = null; openMeet = null; adminOpen = true; adminMsg = null; render(); }
+  function openMeetings(id) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openAccount = null; openMeet = id || 'list'; sendMsg = null; render(); }
   function closeDrawer() {
-    adminOpen = false; openAccount = null; openMeet = null; meetForm = null; sendMsg = null; manage = false; armedKey = null; opMsg = null; fixTeam = ''; $('drawerHost').replaceChildren();
+    adminOpen = false; planOpen = false; openAccount = null; openMeet = null; meetForm = null; sendMsg = null; manage = false; armedKey = null; opMsg = null; fixTeam = ''; $('drawerHost').replaceChildren();
     if (lastFocus && lastFocus.isConnected) lastFocus.focus();
   }
   // two-step confirm: first click arms the button for 5 s, second click runs it
@@ -591,7 +596,35 @@
         el('div', { class: 'd-body' }, body, adminMsg ? el('p', { class: 'm-status ' + (adminMsg.bad ? 'bad' : 'ok') }, adminMsg.text) : null)));
     const f = host.querySelector('#adminPass'); if (f && !host.contains(document.activeElement)) f.focus();
   }
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && (openAccount || openMeet || adminOpen)) closeDrawer(); });
+  // ---------- 辦公環境規劃（js/plan.js，整理自會議結論；待老闆裁示）----------
+  const APPROVED_ZH = v => v === true ? ['核准', 'st-done'] : v === false ? ['不做', 'st-declined'] : ['待裁示', 'st-new'];
+  function renderPlanDrawer(m) {
+    const P = PLAN, host = $('drawerHost');
+    const closeBtn = el('button', { class: 'close', type: 'button', 'aria-label': '關閉', onclick: closeDrawer }, '×');
+    const mt = m.meetings.find(x => x.id === P.meetingId);
+    const max = Math.max(1, ...P.ranking.map(r => r.votes));
+    const rank = el('ol', { class: 'p-rank' }, ...P.ranking.map(r => el('li', {},
+      el('span', { class: 'p-id' }, r.id), el('span', { class: 'p-name' }, r.name, r.inFloor ? el('span', { class: 'p-tag' }, '已在 3D') : null),
+      el('span', { class: 'p-bar', 'aria-hidden': 'true' }, el('i', { style: `width:${(r.votes / max * 100).toFixed(0)}%` })),
+      el('b', { class: 'p-votes' }, r.votes + ' 票'))));
+    const tiers = P.tiers.map(t => el('div', { class: 'sect' }, el('h2', {}, t.level),
+      el('ul', { class: 'clist' }, ...t.items.map(it => { const [txt, cls] = APPROVED_ZH(it.approved);
+        return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st ' + cls }, txt), el('b', {}, `${it.id}　${it.name}`)), it.detail ? el('span', { class: 'hint' }, it.detail) : null); }))));
+    host.replaceChildren(
+      el('div', { class: 'scrim', onclick: closeDrawer }),
+      el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'pTitle' },
+        el('div', { class: 'd-head' }, el('div', { class: 'd-title' }, el('span', { class: 'r-topic', id: 'pTitle' }, `${P.title}（${P.status}）`),
+          el('span', { class: 'sub' }, `會議結論 ${P.decided} · 主持 ${partyName(P.host)}`)), el('div', { class: 'd-tools' }, closeBtn)),
+        el('div', { class: 'd-body' },
+          el('p', { class: 'r-content' }, P.summary),
+          el('div', { class: 'sect' }, el('h2', {}, '投票結果'), rank),
+          ...tiers,
+          el('div', { class: 'sect' }, el('h2', {}, '3D 辦公室'),
+            el('p', { class: 'hint' }, '會議室已升級為 B+ 會議／試播室（觸控大螢幕、1080p 試播投影、直立副螢幕、看板牆），北側新增 D 錄課棚（收音桌、直式拍攝位、ON AIR 燈）。A 辦公室升級等老闆核准後再加。')),
+          el('div', { class: 'm-row' }, mt ? el('button', { class: 'btn sm', type: 'button', onclick: () => openMeetings(P.meetingId) }, '看會議紀錄（' + mt.msgs.length + ' 則發言）') : el('span', { class: 'hint' }, '會議紀錄：' + P.meetingId)))));
+    if (!host.contains(document.activeElement)) closeBtn.focus();
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && (openAccount || openMeet || adminOpen || planOpen)) closeDrawer(); });
 
   // ---------- status / notices ----------
   function setStatus(kind, text) {

@@ -13,6 +13,16 @@ const box = document.getElementById('office'), info = document.getElementById('o
 const SCENE_BASE = (CFG.sceneBase || './').replace(/\/?$/, '/');
 const LIB_OFFICE = SCENE_BASE + 'scenes/001_open_office/', LIB_MEET = SCENE_BASE + 'scenes/002_meeting_room/', LIB_PANTRY = SCENE_BASE + 'scenes/004_pantry/';
 const USE_ZH = { coffee: '泡咖啡', microwave: '微波便當', fridge: '開冰箱', vending: '買飲料', sink: '洗杯子', water: '倒水' };
+// Devices people (and the viewer) can operate. fx = glow colour; steam = little puffs while running; done = bubble when finished.
+const DEV = {
+  coffee:    { name: '咖啡機', act: '沖一杯咖啡', run: '沖煮中', fx: 0xfff1c9, steam: true, done: '咖啡好了 ☕' },
+  microwave: { name: '微波爐', act: '加熱便當',   run: '加熱中', fx: 0xffb347, done: '叮！' },
+  fridge:    { name: '冰箱',   act: '打開冰箱',   run: '門開著', fx: 0x9fd8ff, done: '關門' },
+  vending:   { name: '販賣機', act: '買一瓶飲料', run: '出貨中', fx: 0xb9f0c4, done: '咚！' },
+  sink:      { name: '水槽',   act: '開水龍頭',   run: '流水中', fx: 0x9fd8ff, done: '洗好了' },
+  water:     { name: '飲水機', act: '倒一杯熱水', run: '出水中', fx: 0xbfe6ff, steam: true, done: '水好了' }
+};
+const RUN_SEC = 8;
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const B2T = p => new THREE.Vector3(p[0], p[2] || 0, -p[1]);   // scene coords (x east, y north) -> three
 const MIN = 60e3, HOUR = 3600e3, CELL = .25;
@@ -183,9 +193,10 @@ function buildOffice(room) {
   // water dispenser + plant in the east corners
   const wy = doorSide === 'N' ? y0 + .6 : y0 + d - .6;
   const wd = prefab(['WaterDispenser'], 15.5, -2.8); wd.position.set(x0 + w - .45, 0, -wy); g.add(wd);
-  anchors.water.push({ id: `${room.id}:water`, type: 'POI', position: [x0 + w - 1.2, wy, 0], yaw_deg: -90 });
+  anchors.water.push({ id: `${room.id}:water`, type: 'POI', use: 'water', position: [x0 + w - 1.2, wy, 0], yaw_deg: -90 });
   const pl = prefab(['Plant'], .7, -.7); pl.position.set(x0 + w - .6, 0, -(doorSide === 'N' ? y0 + d - .6 : y0 + .6)); g.add(pl);
   room.anchors = anchors; room.group = g; scene.add(g);
+  addDevice(room, anchors.water[0], g, null);
 }
 
 // Library rooms (002 meeting room, 004 pantry) with walls cut down so you can see in from above.
@@ -208,6 +219,7 @@ function buildLibRoom(room, src, navSrc, meta, signText) {
 function buildMeeting(room) {
   const { A, door } = buildLibRoom(room, lib.meetScene, lib.meetNav, meetMeta, '會議室');
   room.anchors = { seats: A.filter(a => /SEAT_meeting/.test(a.id)), stands: A.filter(a => /STAND_/.test(a.id)), water: A.filter(a => /POI_water/.test(a.id)), door };
+  for (const a of room.anchors.water) addDevice(room, { ...a, use: 'water' }, scene, room.extra);
   // projector screen on the north side showing the current meeting
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 576;
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
@@ -221,8 +233,35 @@ function buildMeeting(room) {
 function buildPantry(room) {
   const { A, door } = buildLibRoom(room, lib.pantryScene, lib.pantryNav, pantryMeta, '茶水間');
   room.anchors = { devices: A.filter(a => a.type === 'POI'), seats: A.filter(a => a.type === 'SEAT'), door };
-  floor.devFx = new Map(room.anchors.devices.map(a => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), transparent: true, depthWrite: false, color: a.use === 'microwave' ? 0xffb347 : a.use === 'fridge' ? 0x9fd8ff : 0xfff1c9 }));
-    const p = B2T(a.position); sp.position.set(p.x, 1.35, p.z); sp.scale.set(.7, .7, 1); sp.visible = false; scene.add(sp); room.extra.push(sp); return [a.id, sp]; }));
+  for (const a of room.anchors.devices) addDevice(room, a, scene, room.extra);
+}
+// A device: glow + steam effects, a small name tag and an invisible hit box, so it can be clicked and operated.
+function addDevice(room, a, parent, extra) {
+  const info = DEV[a.use]; if (!info) return;
+  const yaw = (a.yaw_deg || 0) * Math.PI / 180, fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const c = B2T(a.position).addScaledVector(fwd, a.use === 'water' ? .7 : .55), tall = a.use === 'vending' || a.use === 'fridge';
+  const add = o => { parent.add(o); if (extra) extra.push(o); return o; };
+  const glow = add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), transparent: true, depthWrite: false, color: info.fx })));
+  glow.position.set(c.x, tall ? 1.2 : 1.05, c.z); glow.scale.set(.7, .7, 1); glow.visible = false;
+  const steam = [];
+  if (info.steam) for (let i = 0; i < 6; i++) { const sp = add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), transparent: true, depthWrite: false, color: 0xffffff })));
+    sp.position.set(c.x, 1.1, c.z); sp.visible = false; steam.push(sp); }
+  const hit = add(new THREE.Mesh(new THREE.BoxGeometry(.8, tall ? 2 : 1.3, .8), new THREE.MeshBasicMaterial()));
+  hit.position.set(c.x, tall ? 1 : .65, c.z); hit.visible = false;
+  const tag = add(makeTag(info.name)); tag.position.set(c.x, tall ? 2.25 : 1.6, c.z);
+  const dev = { id: a.id, use: a.use, info, anchor: a, room, pos: c, glow, steam, hit, tag, runUntil: 0, bubble: null };
+  hit.userData.device = tag.userData.device = dev;
+  floor.devices.set(a.id, dev);
+}
+function makeTag(text) {   // small world-space pill above a device
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 72; const x = cv.getContext('2d');
+  x.font = `700 34px ${F}`; const w = Math.min(248, x.measureText(text).width + 40), x0 = (256 - w) / 2;
+  x.fillStyle = 'rgba(255,255,255,.92)'; x.strokeStyle = 'rgba(20,32,43,.35)'; x.lineWidth = 3;
+  x.beginPath(); x.roundRect(x0, 8, w, 54, 27); x.fill(); x.stroke();
+  x.fillStyle = '#14202b'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, 128, 36);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })); sp.scale.set(1.1, .31, 1); sp.renderOrder = 5;
+  return sp;
 }
 let _glow = null;
 function glowTex() { if (_glow) return _glow; const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
@@ -344,7 +383,7 @@ function buildFloor(teams, needShared) {
   const northW = north.reduce((s, r) => s + r.w, 0) + GAP * (north.length - 1);
   const W = Math.max(southW, northW); let nx = (W - northW) / 2;
   for (const r of north) { r.x0 = nx; r.y0 = D + CORR; nx += r.w + GAP; rooms.push(r); }
-  floor = { rooms, W, D: D + CORR + 7, extra: [], screens: new Map() };
+  floor = { rooms, W, D: D + CORR + 7, extra: [], screens: new Map(), devices: new Map() };
   // base floor + corridor
   const base = new THREE.Group();
   floorPlane(base, -1, -1, W + 1, floor.D + 1, new THREE.Color(css('--office-bg') || '#d6e0e7').offsetHSL(0, 0, -.06));
@@ -407,6 +446,27 @@ function makeLabel() {
   }
   return { spr, set };
 }
+// Speech bubble (screen-space, like the name tag) for short lines: greetings, device sounds, what someone is doing.
+function makeBubble() {
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 96;
+  const ctx = cv.getContext('2d'), tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+  spr.renderOrder = 11; spr.center.set(.5, 0); spr.visible = false;
+  const b = { spr, until: 0, text: '' };
+  b.say = (text, sec, now) => {
+    b.until = now + sec; spr.visible = true; if (text === b.text) return; b.text = text;
+    ctx.clearRect(0, 0, 512, 96); ctx.font = `700 34px ${F}`;
+    let t = String(text); while (t.length > 1 && ctx.measureText(t).width > 440) t = t.slice(0, -1);
+    if (t !== String(text)) t += '…';
+    const w = Math.min(500, ctx.measureText(t).width + 44), x0 = (512 - w) / 2;
+    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = 'rgba(20,32,43,.45)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect(x0, 4, w, 70, 22); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(244, 72); ctx.lineTo(256, 90); ctx.lineTo(268, 72); ctx.fill();
+    ctx.fillStyle = '#14202b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 256, 40);
+    tex.needsUpdate = true;
+  };
+  return b;
+}
 
 // ---------- agents ----------
 const agents = new Map();   // key -> agent
@@ -462,7 +522,77 @@ function arrive(ag, a) {
   ag.p.g.rotation.y = (a.yaw_deg || 0) * Math.PI / 180;
   ag.seated = a.type === 'SEAT' && !a.shared;
   const p = B2T(a.position); ag.p.g.position.x = p.x; ag.p.g.position.z = p.z;
+  if (ag.ov) { const s = ag.ov.steps[ag.ov.i]; ag.wait = s.hold; if (s.say) say(ag, s.say, Math.min(s.hold, 4)); return; }
   ag.wait = ag.mode === 'patrol' ? 2.5 + Math.random() * 2 : ag.mode === 'rest' ? (ag.restPhase === 'device' ? 6 + Math.random() * 3 : 15 + Math.random() * 10) : Infinity;
+}
+
+// ---------- viewer-driven actions (local only: nothing is written to Drive) ----------
+const ACTIONS = [
+  ['wave', '打招呼'], ['stretch', '伸懶腰'], ['pantry', '去茶水間'], ['meet', '去會議室'],
+  ['board', '到白板前'], ['patrol', '巡一圈'], ['desk', '回座位工作']
+];
+const ACT_NAME = Object.fromEntries(ACTIONS);
+const now = () => clock.elapsedTime;
+function say(ag, text, sec = 3) { ag.bubble.say(text, sec, now()); }
+function devSay(dev, text, sec = 2.5) {
+  if (!dev.bubble) { dev.bubble = makeBubble(); scene.add(dev.bubble.spr); (dev.room.extra || (dev.room.extra = [])).push(dev.bubble.spr);
+    dev.bubble.spr.position.set(dev.pos.x, dev.tag.position.y + .25, dev.pos.z); }
+  dev.bubble.say(text, sec, now());
+}
+function deviceStep(ag, dev) {
+  const spot = claim(ag.key, [dev.anchor]) || jitter(dev.anchor, ag.key, .5);
+  return { to: spot, anim: 'use', hold: 7, device: dev, say: USE_ZH[dev.use] || '使用設備' };
+}
+function planFor(ag, kind, dev) {
+  const k = ag.key, home = homeOf(ag.group), meet = floor.meeting.anchors, pt = floor.pantry && floor.pantry.anchors;
+  release(k);
+  switch (kind) {
+    case 'wave': return [{ anim: 'wave', hold: 3.5, say: '嗨！' }];
+    case 'stretch': return [{ anim: 'stretch', hold: 3, say: '伸個懶腰～' }];
+    case 'device': return [deviceStep(ag, dev)];
+    case 'pantry': {
+      const free = [...floor.devices.values()].filter(d => d.room === floor.pantry && !held.has(d.id) && d.runUntil <= now());
+      const d = free[Math.floor(Math.random() * free.length)] || [...floor.devices.values()].find(d => d.room === floor.pantry);
+      const steps = d ? [deviceStep(ag, d)] : [];
+      if (pt) steps.push({ to: claim(k, [...pt.seats].sort(() => Math.random() - .5)) || jitter(pt.door, k, .8), anim: 'sip', hold: 16, say: '休息一下' });
+      return steps;
+    }
+    case 'meet': return [{ to: claim(k, meet.seats) || jitter(meet.door, k, .8), anim: 'meet', hold: 25, say: '來開會' }];
+    case 'board': return [{ to: claim(k, home.anchors.board) || jitter(home.anchors.board[0], k, .5), anim: 'present', hold: 15, say: '我來說明一下' }];
+    case 'patrol': return [home.anchors.water[0], home.anchors.door, ...floor.corridor, home.anchors.door]
+      .map((a, i) => ({ to: jitter(a, k + i, .35), anim: 'patrol', hold: 1.8 }));
+    case 'desk': return [{ to: deskFor(ag), anim: 'work', hold: 40, say: '回來工作' }];
+  }
+  return [];
+}
+function command(key, kind, dev) {
+  const ag = agents.get(key); if (!ag || !floor) return;
+  const steps = planFor(ag, kind, dev); if (!steps.length) return;
+  ag.ov = { kind, steps, i: 0, label: kind === 'device' ? '去用' + dev.info.name : ACT_NAME[kind] };
+  setFaded(ag.p, false); runStep(ag);
+}
+function runStep(ag) {
+  const s = ag.ov.steps[ag.ov.i];
+  if (s.to) goTo(ag, s.to);
+  else { ag.walking = false; ag.path = []; ag.wait = s.hold; if (s.say) say(ag, s.say, s.hold); }
+}
+function nextStep(ag) {
+  const s = ag.ov.steps[ag.ov.i];
+  if (s.device && s.device.info.done) devSay(s.device, s.device.info.done);
+  if (++ag.ov.i < ag.ov.steps.length) runStep(ag); else endOverride(ag);
+}
+function endOverride(ag) {
+  if (!ag.ov) return;
+  ag.ov = null; ag.restPhase = null; release(ag.key); setFaded(ag.p, ag.mode === 'idle'); goTo(ag, targetFor(ag));
+}
+function runDevice(dev) { dev.runUntil = now() + RUN_SEC; dev.doneSaid = false; devSay(dev, dev.info.run + '…', 2); }
+function deviceUser(dev) {
+  for (const ag of agents.values()) {
+    const s = ag.ov && ag.ov.steps[ag.ov.i];
+    if (s && s.device === dev && !ag.walking) return ag;
+    if (!ag.ov && ag.mode === 'rest' && ag.restPhase === 'device' && !ag.walking && ag.device && ag.device.id.replace(/~$/, '') === dev.id) return ag;
+  }
+  return null;
 }
 
 function upsert(g, i) {
@@ -470,15 +600,15 @@ function upsert(g, i) {
   const mode = classify(g), color = colorOf(g);
   if (!ag) {
     const p = makePerson(new THREE.Color(color)); p.g.userData.key = g.key;
-    const label = makeLabel();
-    ag = { key: g.key, group: g, p, label, mode, step: i, lift: (agents.size % 2) * .25, path: [], walking: false, wait: Infinity, phase: Math.random() * 6, seated: false };
-    scene.add(p.g); scene.add(label.spr); agents.set(g.key, ag);
+    const label = makeLabel(), bubble = makeBubble();
+    ag = { key: g.key, group: g, p, label, bubble, mode, step: i, lift: (agents.size % 2) * .25, path: [], walking: false, wait: Infinity, phase: Math.random() * 6, seated: false, ov: null };
+    scene.add(p.g); scene.add(label.spr); scene.add(bubble.spr); agents.set(g.key, ag);
     if (firstPlacement) placeAt(ag, targetFor(ag));
     else { const d = B2T(homeOf(g).anchors.door.position); p.g.position.set(d.x, 0, d.z); goTo(ag, targetFor(ag)); }
-  } else { ag.group = g; if (ag.mode !== mode) { ag.mode = mode; goTo(ag, targetFor(ag)); } }
+  } else { ag.group = g; if (ag.mode !== mode) { ag.mode = mode; if (!ag.ov) goTo(ag, targetFor(ag)); } }   // a viewer action finishes first
   ag.mode = mode; ag.group = g;
   ag.p.mats[0].color.set(color); ag.p.ring.material.color.set(color);
-  setFaded(ag.p, mode === 'idle'); ag.p.cup.visible = mode === 'rest';
+  setFaded(ag.p, mode === 'idle' && !ag.ov); ag.p.cup.visible = mode === 'rest';
   const topic = mode === 'meet' && g.meetMsg ? '說：' + g.meetMsg.content : mode === 'rest' && ag.activity ? ag.activity : g.latest.topic;
   ag.label.set({ team: g.team ? g.team.label : '—', teamColor: color, name: g.account.split('@')[0], state: STATES[mode].label,
     stateColor: css(STATES[mode].tok) || '#ccc', topic, faded: mode === 'idle' });
@@ -499,12 +629,13 @@ function update(groups, opts = {}) {
   const sig = JSON.stringify([teams.map(t => [t.key, Math.max(1, Math.ceil((t.count + 1) / 4)), t.color, t.label]), shared ? Math.ceil((shared + 1) / 4) : 0, css('--office-bg')]);
   if (sig !== layoutSig) {
     layoutSig = sig;
-    for (const ag of agents.values()) { scene.remove(ag.p.g); scene.remove(ag.label.spr); }
+    for (const ag of agents.values()) { scene.remove(ag.p.g); scene.remove(ag.label.spr); scene.remove(ag.bubble.spr); }
+    closeMenu();
     agents.clear(); deskOf.clear(); held.clear(); firstPlacement = true;
     buildFloor(teams, shared);
   }
   const keep = new Set(groups.map(g => g.key));
-  for (const [k, ag] of agents) if (!keep.has(k)) { scene.remove(ag.p.g); scene.remove(ag.label.spr); release(k); deskOf.delete(k); agents.delete(k); }
+  for (const [k, ag] of agents) if (!keep.has(k)) { scene.remove(ag.p.g); scene.remove(ag.label.spr); scene.remove(ag.bubble.spr); release(k); deskOf.delete(k); agents.delete(k); }
   for (const scr of floor.screens.values()) scr.agent = null;
   groups.forEach((g, i) => upsert(g, i));
   for (const scr of floor.screens.values()) if (!scr.agent && scr.sig !== 'off') drawOff(scr);
@@ -539,32 +670,42 @@ function animate(ag, dt, t) {
       if (d > 1e-3) p.g.rotation.y = Math.atan2(-dx, -dz);
       const sw = Math.sin(t * 9 + ph);
       p.g.position.y = Math.abs(sw) * .035; p.hips.rotation.x = 0;
-      p.armL.rotation.set(sw * .55, 0, 0); p.armR.rotation.set(-sw * .55, 0, 0); p.head.rotation.set(0, 0, 0);
+      p.armL.rotation.set(sw * .55, 0, 0); p.armR.rotation.set(-sw * .55, 0, 0); p.head.rotation.set(0, 0, 0); p.torso.scale.y = 1; p.cup.visible = false;
       return;
     }
   }
   p.g.position.y = ag.seated ? -.04 : 0;
   p.hips.rotation.x = ag.seated ? Math.PI / 2 : 0;
-  p.head.rotation.set(0, 0, 0); p.armL.rotation.set(0, 0, 0); p.armR.rotation.set(0, 0, 0);
-  switch (ag.mode) {
+  p.head.rotation.set(0, 0, 0); p.armL.rotation.set(0, 0, 0); p.armR.rotation.set(0, 0, 0); p.torso.scale.y = 1;
+  const m = ag.ov ? ag.ov.steps[ag.ov.i].anim : ag.mode === 'rest' ? (ag.restPhase === 'device' ? 'use' : 'sip') : ag.mode;
+  p.cup.visible = m === 'sip';
+  switch (m) {
+    case 'wave': p.armR.rotation.x = 2.75; p.armR.rotation.z = .35 + Math.sin(t * 11 + ph) * .4; p.head.rotation.y = Math.sin(t * 2 + ph) * .15; p.head.rotation.x = -.08; break;
+    case 'stretch': { const k = Math.min(1, (3 - Math.max(0, ag.wait)) * 1.6); p.armL.rotation.x = p.armR.rotation.x = 2.95 * k; p.armL.rotation.z = -.25 * k; p.armR.rotation.z = .25 * k; p.head.rotation.x = -.3 * k; p.torso.scale.y = 1 + .06 * k; break; }
+    case 'use': p.armL.rotation.x = 1.2 + Math.sin(t * 6 + ph) * .15; p.armR.rotation.x = 1.35 + Math.sin(t * 6 + ph + 1) * .2; p.head.rotation.x = .15; break;
+    case 'sip': p.armR.rotation.x = 1.5 + Math.max(0, Math.sin(t * .9 + ph)) * .9; p.armL.rotation.z = -.08; p.head.rotation.y = Math.sin(t * .6 + ph) * .3; break;
     case 'work': p.armL.rotation.x = 1.25 + Math.sin(t * 13 + ph) * .1; p.armR.rotation.x = 1.25 + Math.sin(t * 13 + ph + 1.7) * .1; p.head.rotation.x = .12 + Math.sin(t * 1.3 + ph) * .04; break;
     case 'meet': p.armL.rotation.x = .9; p.armR.rotation.x = .9 + Math.max(0, Math.sin(t * .8 + ph)) * .7; p.head.rotation.x = Math.max(0, Math.sin(t * 2.2 + ph)) * .18; p.head.rotation.y = Math.sin(t * .5 + ph) * .35; break;
     case 'present': p.armR.rotation.x = 2.3 + Math.sin(t * 2 + ph) * .25; p.armR.rotation.z = .25; p.armL.rotation.x = .3 + Math.sin(t * 1.4 + ph) * .2; break;
     case 'patrol': p.head.rotation.y = Math.sin(t * 1.6 + ph) * .7; p.armL.rotation.z = -.15; p.armR.rotation.x = .5; break;
-    case 'rest':
-      if (ag.restPhase === 'device') { p.armL.rotation.x = 1.2 + Math.sin(t * 6 + ph) * .15; p.armR.rotation.x = 1.35 + Math.sin(t * 6 + ph + 1) * .2; p.cup.visible = false; p.head.rotation.x = .15; }
-      else { p.cup.visible = true; p.armR.rotation.x = 1.5 + Math.max(0, Math.sin(t * .9 + ph)) * .9; p.armL.rotation.z = -.08; p.head.rotation.y = Math.sin(t * .6 + ph) * .3; }
-      break;
     default: p.head.rotation.x = .35; p.armL.rotation.x = ag.seated ? .9 : 0; p.armR.rotation.x = ag.seated ? .9 : 0;
   }
-  if (ag.wait !== Infinity) { ag.wait -= dt; if (ag.wait <= 0) goTo(ag, targetFor(ag)); }
+  if (ag.wait !== Infinity) { ag.wait -= dt; if (ag.wait <= 0) { if (ag.ov) nextStep(ag); else goTo(ag, targetFor(ag)); } }
 }
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), .1);
   if (document.hidden || box.hidden || !box.clientWidth) return;
   const t = clock.elapsedTime;
-  if (floor && floor.devFx) { const inUse = new Set(); for (const ag of agents.values()) if (ag.mode === 'rest' && ag.restPhase === 'device' && !ag.walking && ag.device) inUse.add(ag.device.id.replace(/~$/, ''));
-    for (const [id, sp] of floor.devFx) { sp.visible = inUse.has(id); if (sp.visible) { const s = .55 + Math.sin(t * 5) * .12; sp.scale.set(s, s, 1); } } }
+  if (floor) for (const dev of floor.devices.values()) {
+    if (dev.runUntil && t >= dev.runUntil) { dev.runUntil = 0; devSay(dev, dev.info.done || '好了'); }
+    const on = dev.runUntil > t || !!deviceUser(dev);
+    dev.glow.visible = on; if (on) { const s = .55 + Math.sin(t * 5) * .12; dev.glow.scale.set(s, s, 1); }
+    dev.steam.forEach((sp, i) => { sp.visible = on; if (!on) return; const f = (t * .45 + i / dev.steam.length) % 1;
+      sp.position.set(dev.pos.x + Math.sin(f * 6 + i) * .06, 1.15 + f * .8, dev.pos.z); sp.material.opacity = .55 * (1 - f); const s = .12 + f * .22; sp.scale.set(s, s, 1); });
+    dev.tag.visible = showNames;
+    if (dev.bubble && dev.bubble.spr.visible && t > dev.bubble.until) dev.bubble.spr.visible = false;
+    if (dev.bubble) { const s = camera.aspect < 1 ? .085 : .11; dev.bubble.spr.scale.set(s * 2, s * 2 * 96 / 512, 1); }
+  }
   if (floor && t - (floor.scrT || 0) > .5) { floor.scrT = t; for (const scr of floor.screens.values()) if (scr.agent) drawScreen(scr, scr.agent, t); }
   for (const ag of agents.values()) {
     animate(ag, dt, t);
@@ -572,12 +713,73 @@ renderer.setAnimationLoop(() => {
     ag.label.spr.visible = showNames;
     ag.label.spr.position.set(gp.x, (ag.seated && !ag.walking ? 1.4 : 1.65) + (ag.lift || 0), gp.z);
     const s = camera.aspect < 1 ? .085 : .11; ag.label.spr.scale.set(s, s / 4, 1);
+    const bb = ag.bubble; if (bb.spr.visible && t > bb.until) bb.spr.visible = false;
+    if (bb.spr.visible) { bb.spr.position.copy(ag.label.spr.position); bb.spr.center.y = showNames ? -.75 : 0; bb.spr.scale.set(s * 2, s * 2 * 96 / 512, 1); }
   }
+  if (menu.el && menu.track) placeMenu();
   controls.update(); renderer.render(scene, camera);
 });
 
-// ---------- picking ----------
+// ---------- picking + action menu ----------
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
+const menu = { el: null, track: null };
+function closeMenu() { if (menu.el) menu.el.remove(); menu.el = null; menu.track = null; }
+function placeMenu() {   // keep the menu next to the person / device it belongs to
+  const el = menu.el, w = box.clientWidth, h = box.clientHeight;
+  const v = menu.track().clone().project(camera);
+  if (v.z > 1) return;
+  const x = (v.x + 1) / 2 * w, y = (1 - v.y) / 2 * h, mw = el.offsetWidth, mh = el.offsetHeight;
+  let left = x + 14, top = y - mh / 2;
+  if (left + mw > w - 8) left = x - mw - 14;
+  left = Math.max(8, Math.min(left, w - mw - 8)); top = Math.max(8, Math.min(top, h - mh - 8));
+  el.style.left = left + 'px'; el.style.top = top + 'px';
+}
+function showMenu(title, sub, items, track) {
+  closeMenu();
+  const el = document.createElement('div'); el.className = 'o-menu'; el.setAttribute('role', 'menu');
+  const head = document.createElement('div'); head.className = 'o-menu-h';
+  const b = document.createElement('b'); b.textContent = title; head.append(b);
+  if (sub) { const sp = document.createElement('span'); sp.textContent = sub; head.append(sp); }
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'o-menu-x'; x.textContent = '×'; x.setAttribute('aria-label', '關閉'); x.onclick = closeMenu; head.append(x);
+  const list = document.createElement('div'); list.className = 'o-menu-l';
+  for (const it of items) {
+    if (it.sep) { const hr = document.createElement('div'); hr.className = 'o-menu-sep'; hr.textContent = it.sep; list.append(hr); continue; }
+    const bt = document.createElement('button'); bt.type = 'button'; bt.setAttribute('role', 'menuitem'); bt.className = it.cls || '';
+    if (it.dot) { const i = document.createElement('i'); i.style.background = it.dot; bt.append(i); }
+    bt.append(it.label); bt.disabled = !!it.disabled;
+    bt.onclick = ev => { ev.stopPropagation(); const keep = it.run(); if (!keep) closeMenu(); };
+    list.append(bt);
+  }
+  const foot = document.createElement('div'); foot.className = 'o-menu-f'; foot.textContent = '只在這個畫面播放，不會寫入雲端';
+  el.append(head, list, foot);
+  for (const ev of ['pointerdown', 'pointerup', 'wheel']) el.addEventListener(ev, e => e.stopPropagation());
+  box.append(el); menu.el = el; menu.track = track; placeMenu();
+  const first = list.querySelector('button:not(:disabled)'); if (first) first.focus({ preventScroll: true });
+}
+const shortName = ag => ag.group.account.split('@')[0];
+function stateText(ag) { return ag.ov ? '指揮中：' + ag.ov.label : STATES[ag.mode].label + (ag.mode === 'rest' && ag.activity ? '・' + ag.activity : ''); }
+function personMenu(ag) {
+  const items = [{ label: '查看紀錄與指令', cls: 'pri', run: () => { if (window.cloudlogBridge) window.cloudlogBridge.open(ag.key); } }, { sep: '讓他做…' }];
+  for (const [k, name] of ACTIONS) items.push({ label: name, run: () => command(ag.key, k) });
+  if (ag.ov) items.push({ label: '停止，回到自動', cls: 'mut', run: () => endOverride(ag) });
+  showMenu(shortName(ag) + (ag.group.team ? ' · ' + ag.group.team.label : ''), stateText(ag), items, () => ag.p.g.position.clone().setY(1.2));
+}
+function deviceMenu(dev, pickPerson = false) {
+  const user = deviceUser(dev), running = dev.runUntil > now();
+  const status = user ? shortName(user) + ' 正在' + (USE_ZH[dev.use] || '使用') : running ? dev.info.run : '待機中';
+  const roomName = dev.room.kind === 'pantry' ? '茶水間' : dev.room.kind === 'meeting' ? '會議室' : dev.room.label;
+  const track = () => dev.pos.clone().setY(1.1);
+  if (pickPerson) {   // choose who should come and use it, nearest first
+    const list = [...agents.values()].sort((a, b) => a.p.g.position.distanceTo(dev.pos) - b.p.g.position.distanceTo(dev.pos));
+    const items = [{ label: '← 返回', cls: 'mut', run: () => { deviceMenu(dev); return true; } }];
+    for (const ag of list) items.push({ label: shortName(ag) + '（' + stateText(ag) + '）', dot: colorOf(ag.group), disabled: ag === user, run: () => command(ag.key, 'device', dev) });
+    showMenu('叫誰來用' + dev.info.name + '？', roomName, items, track); return;
+  }
+  showMenu(dev.info.name + ' · ' + roomName, status, [
+    { label: dev.info.act, cls: 'pri', disabled: running, run: () => runDevice(dev) },
+    { label: '叫人來用…', disabled: !agents.size, run: () => { deviceMenu(dev, true); return true; } }
+  ], track);
+}
 renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
 renderer.domElement.addEventListener('pointerup', e => {
   if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
@@ -586,13 +788,16 @@ renderer.domElement.addEventListener('pointerup', e => {
   ray.setFromCamera(ndc, camera);
   const targets = [...agents.values()].flatMap(ag => [ag.p.g, ...(showNames ? [ag.label.spr] : [])]);
   if (floor && floor.projector) targets.push(floor.projector.mesh);
-  const hit = ray.intersectObjects(targets, true)[0];
-  if (!hit) return;
-  if (hit.object.userData.projector || (hit.object.parent && hit.object.parent.userData.projector)) { if (window.cloudlogBridge) window.cloudlogBridge.meetings(floor.projector.meetingId || 'list'); return; }
+  if (floor) for (const dev of floor.devices.values()) targets.push(dev.hit, ...(showNames ? [dev.tag] : []));
+  const hit = ray.intersectObjects(targets, true).find(h => h.object.visible || h.object.userData.device);
+  if (!hit) { closeMenu(); return; }
+  if (hit.object.userData.projector || (hit.object.parent && hit.object.parent.userData.projector)) { closeMenu(); if (window.cloudlogBridge) window.cloudlogBridge.meetings(floor.projector.meetingId || 'list'); return; }
+  if (hit.object.userData.device) { deviceMenu(hit.object.userData.device); return; }
   let o = hit.object; while (o && !o.userData.key) o = o.parent;
   const key = o ? o.userData.key : [...agents.values()].find(ag => ag.label.spr === hit.object)?.key;
-  if (key && window.cloudlogBridge) window.cloudlogBridge.open(key);
+  const ag = key && agents.get(key); if (ag) personMenu(ag); else closeMenu();
 });
+addEventListener('keydown', e => { if (e.key === 'Escape' && menu.el) closeMenu(); });
 
 // ---------- boot ----------
 async function boot() {
@@ -611,5 +816,5 @@ async function boot() {
     const d = document.createElement('div'); d.className = 'o-err'; d.textContent = '無法載入 3D 場景：' + (e.message || e) + '。請確認 indoor-scenes 已公開（或已開 GitHub Pages）且 config.js 的 sceneBase 正確；也可以先切換到「圓框」檢視。'; box.append(d);
   }
 }
-window.cloudlogOffice = { update };
+window.cloudlogOffice = { update, command: (key, kind) => command(key, kind) };
 boot();

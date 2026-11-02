@@ -1,8 +1,8 @@
 // 辦公環境規劃（待老闆裁示）：整理自會議 M202611030011skun〈討論公司辦公室、會議室、茶水間、其他空間的需求〉的發言與結論。
-// 老師裁示後改 status 與各項的 approved（true 核准 / false 不做 / null 未定）；3D 樓層目前已呈現 B+ 與 D。
+// 老師裁示後改 status 與各項的 approved（true 核准 / false 不做 / null 未定）。2026-11-03 老師核准 A 辦公室升級；3D 已呈現 B+、D、A。
 window.AGENT_OFFICE_PLAN = {
   title: '辦公環境規劃',
-  status: '待老闆裁示',
+  status: '部分已裁示',
   meetingId: 'M202611030011skun',
   host: { account: 'dof.liu@gmail.com', team: 'DofGM' },
   decided: '2026/11/03 02:08',
@@ -10,7 +10,7 @@ window.AGENT_OFFICE_PLAN = {
   ranking: [
     { id: 'B+', name: '會議／試播室', votes: 10, inFloor: true },
     { id: 'D', name: '錄課／錄音棚', votes: 8, inFloor: true },
-    { id: 'A', name: '辦公室升級', votes: 3, inFloor: false },
+    { id: 'A', name: '辦公室升級', votes: 3, inFloor: true },
     { id: 'C', name: '茶水間', votes: 1, inFloor: true, note: '現有茶水間已具備' }
   ],
   tiers: [
@@ -24,7 +24,7 @@ window.AGENT_OFFICE_PLAN = {
       { id: 'I', name: '文件輸出站', approved: null, detail: 'A3 彩色多功能事務機（雙面、自動送稿）＋可上鎖文件櫃；放成果交付區旁。' }
     ] },
     { level: '可延後', items: [
-      { id: 'A', name: '辦公室升級', approved: null, detail: '每人雙螢幕＋電動升降桌、2 間單人隔音電話亭。' },
+      { id: 'A', name: '辦公室升級', approved: true, detail: '每人雙螢幕＋電動升降桌、2 間單人隔音電話亭。' },
       { id: '其他', name: '作品展示牆、休憩沙發區', approved: null, detail: '' }
     ] },
     { level: '另議', items: [

@@ -27,6 +27,7 @@
 | 2026-11-03 | 依代理人會議 `M202611030011skun` 的結論（B+ 10 票、D 8、A 3、C 1）：看板加「規劃」頁（`js/plan.js`，待老闆裁示）；會議室升級為 **B+ 會議／試播室**（看板牆、1080p 試播投影、直立副螢幕），北側新增 **D 錄課棚**；人物多一個「錄製」狀態。A 辦公室升級等老師核准。 |
 | 2026-11-03 | 老師**核准 A 辦公室升級**：每個座位雙螢幕（右側小螢幕顯示最近紀錄）＋電動升降桌（工作中的人不時站起來，桌子升高、椅子後退），走廊兩端各一間隔音電話亭；人物多一個「通話」狀態。另由 Drive 連接器直接寫入指令 `C20261103072439qhon`，請小櫻把公司網站改為看板規劃頁。 |
 | 2026-11-03 | 老師**核准 B+ 與 D**，其他項目暫緩；規劃頁狀態改為「已裁示」。 |
+| 2026-11-03 | 補齊 GitHub 文件：重寫 `README.md`，新增 `docs/usage.md`（使用說明）、`docs/self-host.md`（別人如何建立自己的看板）、`docs/privacy.md`（公開範圍與密碼），以及空白設定範本 `js/config.example.js`。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
 
@@ -43,7 +44,7 @@
           POST → 寫入，需 ADMIN_KEY
                                 │
 GitHub Pages：index.html
-  ├ js/config.js  設定（含代理人暱稱與外觀）
+  ├ js/config.js  設定（含代理人暱稱與外觀；別人自架時用 js/config.example.js 取代）
   ├ js/plan.js    辦公環境規劃（會議結論整理，待老闆裁示）
   ├ js/app.js     讀資料、模型、圓框檢視、側欄、會議／指令／管理 UI、管理登入
   └ js/office.js  Three.js 3D 樓層（場景從 indoor-scenes main 直接讀）
@@ -110,6 +111,8 @@ GitHub Pages：index.html
 - 改資料格式時，技能、`Code.gs`、`app.js` 三處要一起改。
 
 ## 8. 開發與測試
+
+- 對外文件在 `README.md` 與 `docs/`（使用說明、自架、隱私）。新增功能或改設定欄位時，記得一併更新這些文件與 `js/config.example.js`。
 
 - 本機預覽：`python3 -m http.server`（repo 根目錄），開 `/index.html`。
 - 沒有真資料時，可以用 Playwright 的 `page.route` 攔截 `config.js`、Apps Script 網址（GET 回假 feed、POST 回假結果）與 jsDelivr 的 three.js（改指向本機 node_modules）。WebGL 在無頭 Chromium 用 `--use-gl=swiftshader`。

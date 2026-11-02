@@ -72,6 +72,16 @@
   const rand4 = () => Math.random().toString(36).slice(2, 6).padEnd(4, 'x');
   const tsOf = (t, f) => { const v = parseTime14(t || ''); return isNaN(v) ? (Date.parse(f && f.modifiedTime) || 0) : v; };
   const teamKey = t => (t || '').replace(/^team\s+/i, '').trim().toLowerCase() || '—';
+  // nicknames + 3D looks from config.agents (email + TEAM); "Personal Pro" and "TEAM Pro" both match "Pro"
+  const nickTeam = t => String(t || '').replace(/^(team|personal)\s+/i, '').trim().toLowerCase();
+  const NICKS = new Map((CFG.agents || []).filter(x => x && x.account && x.nick).map(x => [String(x.account).trim().toLowerCase() + '|' + nickTeam(x.team), x]));
+  function agentCfg(account, team) {
+    const a = String(account || '').trim().toLowerCase(), hit = NICKS.get(a + '|' + nickTeam(team));
+    if (hit || (team && team !== '*')) return hit || null;
+    const all = [...NICKS].filter(([k]) => k.startsWith(a + '|'));   // no TEAM given: only if the email is unambiguous
+    return all.length === 1 ? all[0][1] : null;
+  }
+  const nickOf = (account, team) => { const c = agentCfg(account, team); return c ? c.nick : String(account || '').split('@')[0]; };
 
   // ---------- formatting ----------
   const fmtFull = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -109,7 +119,8 @@
     const accounts = Object.entries(byAcc).map(([key, list]) => {
       list.sort((a, b) => b.ts - a.ts);
       const latest = list[0], tk = teamKey(latest.team);
-      return { key, account: latest.account, teamKey: tk, list, latest, team: teamInfo[tk], total: list.length, week: list.filter(r => r.ts >= weekAgo).length };
+      const cfg = agentCfg(latest.account, latest.team);
+      return { key, account: latest.account, nick: cfg ? cfg.nick : latest.account.split('@')[0], look: cfg && cfg.look || null, teamKey: tk, list, latest, team: teamInfo[tk], total: list.length, week: list.filter(r => r.ts >= weekAgo).length };
     }).sort((a, b) => a.account.localeCompare(b.account) || a.team.label.localeCompare(b.team.label));
     // meetings
     const meetings = new Map();
@@ -224,7 +235,7 @@
   $('oFull').addEventListener('click', () => setFocus(!document.body.classList.contains('focus')));
   if (lsGet('cloudlog.focus') === '1') document.body.classList.add('focus');
   for (const b of document.querySelectorAll('.views button')) b.addEventListener('click', () => { view = b.dataset.view; lsSet('cloudlog.view', view); render(); });
-  window.cloudlogBridge = { open: k => openDrawer(k), meetings: id => openMeetings(id), refresh: () => render() };
+  window.cloudlogBridge = { open: k => openDrawer(k), meetings: id => openMeetings(id), refresh: () => render(), name: p => partyName(p) };
 
   const MIN_SLOTS = 15;
   function layoutStage(n) {
@@ -251,12 +262,12 @@
   function fillBubble(b, a) {
     b.style.setProperty('--hue', a.team ? a.team.hue : 'var(--t5)');
     b.classList.toggle('fresh', freshSet.has(a.key));
-    b.setAttribute('aria-label', `${a.account}，${a.team ? a.team.label : ''}，最新：${a.latest.topic}，${rel(a.latest.ts)}。開啟最近 10 筆紀錄`);
+    b.setAttribute('aria-label', `${a.nick}（${a.account}），${a.team ? a.team.label : ''}，最新：${a.latest.topic}，${rel(a.latest.ts)}。開啟最近 10 筆紀錄`);
     const live = Date.now() - a.latest.ts < 3600e3;
     b.replaceChildren(
       el('span', { class: 'team' }, a.team ? a.team.label : '未標示'),
+      el('span', { class: 'nick' }, a.nick),
       el('span', { class: 'topic' }, a.latest.topic),
-      (() => { const i = a.account.indexOf('@'); return i > 0 ? el('span', { class: 'email' }, a.account.slice(0, i + 1), el('wbr'), a.account.slice(i + 1)) : el('span', { class: 'email' }, a.account); })(),
       el('span', { class: 'meta' }, live ? el('span', { class: 'live', 'aria-hidden': 'true' }) : null, `${rel(a.latest.ts)} · ${a.total} 筆`)
     );
   }
@@ -340,9 +351,10 @@
       el('div', { class: 'scrim', onclick: closeDrawer }),
       el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dTitle', style: `--hue:${hue}` },
         el('div', { class: 'd-head', style: `--hue:${hue}` },
-          el('div', { class: 'avatar', 'aria-hidden': 'true' }, a.account.charAt(0).toUpperCase()),
+          el('div', { class: 'avatar', 'aria-hidden': 'true' }, a.nick.charAt(0).toUpperCase()),
           el('div', { class: 'd-title' },
-            el('span', { class: 'email', id: 'dTitle' }, a.account),
+            el('b', { class: 'nick', id: 'dTitle' }, a.nick),
+            el('span', { class: 'email' }, a.account),
             el('span', { class: 'sub' }, el('span', { class: 'team' }, a.team ? a.team.label : '未標示'), `共 ${a.total} 筆 · 近 7 天 ${a.week} 筆`)),
           el('div', { class: 'd-tools' }, manageBtn, closeBtn)),
         el('div', { class: 'd-body' },
@@ -361,7 +373,7 @@
   // ---------- commands, meetings (board writes new JSON files only) ----------
   const ST_ZH = { new: '待接收', received: '已收到', in_progress: '進行中', done: '完成', declined: '不做', blocked: '卡住' };
   const KIND_ZH = { opinion: '意見', question: '提問', answer: '回答', proposal: '提案', agree: '同意', disagree: '反對', info: '補充', instruction: '指示', action: '待辦' };
-  const partyName = p => p ? (p.name || String(p.account || '').split('@')[0] || '—') : '—';
+  const partyName = p => !p ? '—' : p.team === 'HUMAN' ? (p.name || '老師') : agentCfg(p.account, p.team) ? nickOf(p.account, p.team) : (p.name || String(p.account || '').split('@')[0] || '—');
   // All writes: POST to the Apps Script web app with the admin password. The script builds and names the files.
   async function api(action, payload) {
     const r = await fetch(CFG.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, key: adminKey, ...payload }) });
@@ -494,8 +506,8 @@
     const area = (id, ph, key, rows) => { const t = el('textarea', { id, rows: String(rows), placeholder: ph }); t.value = f[key]; t.addEventListener('input', () => { f[key] = t.value; }); return t; };
     const who = m.accounts.map((a, i) => { const id = 'mw' + i; const cb = el('input', { id, type: 'checkbox' }); cb.checked = f.who.has(a.key);
       cb.addEventListener('change', () => { cb.checked ? f.who.add(a.key) : f.who.delete(a.key); if (!f.who.has(f.host)) f.host = [...f.who][0] || ''; render(); });
-      return el('label', { class: 'ck', for: id }, cb, a.account.split('@')[0], el('span', { class: 'team', style: `--hue:${a.team ? a.team.hue : 'var(--t5)'}` }, a.team ? a.team.label : '—')); });
-    const hostSel = el('select', { id: 'mhost' }, ...[...f.who].map(k => { const a = m.accounts.find(q => q.key === k); const o = el('option', { value: k }, a ? `${a.account.split('@')[0]} · ${a.team ? a.team.label : ''}` : k); if (k === f.host) o.selected = true; return o; }));
+      return el('label', { class: 'ck', for: id, title: a.account }, cb, a.nick, el('span', { class: 'team', style: `--hue:${a.team ? a.team.hue : 'var(--t5)'}` }, a.team ? a.team.label : '—')); });
+    const hostSel = el('select', { id: 'mhost' }, ...[...f.who].map(k => { const a = m.accounts.find(q => q.key === k); const o = el('option', { value: k }, a ? `${a.nick} · ${a.team ? a.team.label : ''}` : k); if (k === f.host) o.selected = true; return o; }));
     hostSel.addEventListener('change', () => { f.host = hostSel.value; });
     const hrs = el('select', { id: 'mhrs' }, ...[2, 6, 12, 24, 48, 72].map(h => { const o = el('option', { value: String(h) }, h + ' 小時內'); if (h === f.hours) o.selected = true; return o; }));
     hrs.addEventListener('change', () => { f.hours = Number(hrs.value); });

@@ -301,7 +301,7 @@ function drawScreen(scr, ag, t) {
     const sig = ['w', g.latest.topic, g.latest.content, g.pending, color].join('|'); if (sig === scr.sig) return; scr.sig = sig;
     x.fillStyle = '#f4f8fb'; x.fillRect(0, 0, 384, 216);
     x.fillStyle = color; x.fillRect(0, 0, 384, 34);
-    x.fillStyle = '#0b141c'; x.font = `700 20px ${F}`; x.textBaseline = 'middle'; x.fillText(g.account.split('@')[0] + ' · ' + (g.team ? g.team.label : ''), 12, 18);
+    x.fillStyle = '#0b141c'; x.font = `700 20px ${F}`; x.textBaseline = 'middle'; x.fillText(nickOf(g) + ' · ' + (g.team ? g.team.label : ''), 12, 18);
     x.fillStyle = '#1f8a45'; x.font = `700 18px ${F}`; x.fillText('● 工作中', 12, 56);
     x.fillStyle = '#14202b'; x.font = `700 24px ${F}`; wrapText(x, g.latest.topic, 360, 2).forEach((l, i) => x.fillText(l, 12, 90 + i * 30));
     x.fillStyle = '#4a5866'; x.font = `400 16px ${F}`; wrapText(x, g.latest.content || '', 360, 2).forEach((l, i) => x.fillText(l, 12, 152 + i * 21));
@@ -317,7 +317,7 @@ function drawScreen(scr, ag, t) {
   x.fillStyle = 'rgba(255,255,255,.9)';
   for (let k = 0; k < 3; k++) { const a = t * 1.6 + ag.phase + k * 2.094; x.save(); x.translate(cx, cy); x.rotate(a); x.beginPath(); x.moveTo(-3, 0); x.quadraticCurveTo(-6, -30, 0, -62); x.quadraticCurveTo(6, -30, 3, 0); x.fill(); x.restore(); }
   x.beginPath(); x.arc(cx, cy, 5, 0, 7); x.fill();
-  x.fillStyle = color; x.font = `700 18px ${F}`; x.textBaseline = 'middle'; x.fillText(g.account.split('@')[0], 14, 26);
+  x.fillStyle = color; x.font = `700 18px ${F}`; x.textBaseline = 'middle'; x.fillText(nickOf(g), 14, 26);
   x.fillStyle = '#ffffff'; x.font = `800 40px ${F}`;
   const now = new Date(); x.fillText(now.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }), 14, 74);
   x.fillStyle = '#cfe2ee'; x.font = `700 18px ${F}`; x.fillText(away, 14, 120);
@@ -338,13 +338,13 @@ function drawProjector() {
     x.fillStyle = '#fff'; x.font = `800 30px ${F}`; x.fillText('會議中', 70, 61);
     x.fillStyle = '#14202b'; x.font = `800 46px ${F}`; x.fillText(wrapText(x, cur.title, 780, 1)[0] || '', 210, 62);
     const ag = cur.agenda || {}; x.fillStyle = '#566676'; x.font = `500 24px ${F}`;
-    x.fillText(`主持 ${ag.host ? String(ag.host.name || ag.host.account || '').split('@')[0] : '—'} · 與會 ${(ag.attendees || []).length} 人 · 發言 ${cur.msgs.length} 則`, 40, 118);
+    x.fillText(`主持 ${ag.host ? partyName(ag.host) : '—'} · 與會 ${(ag.attendees || []).length} 人 · 發言 ${cur.msgs.length} 則`, 40, 118);
     x.fillStyle = '#d5dce3'; x.fillRect(40, 146, 944, 2);
     const recent = cur.msgs.slice(-3);
     if (!recent.length) { x.fillStyle = '#566676'; x.font = `500 30px ${F}`; x.fillText('等待與會代理人發言…', 40, 220);
       (ag.agenda || []).slice(0, 4).forEach((a, i) => { x.fillStyle = '#14202b'; x.font = `500 28px ${F}`; x.fillText(`${i + 1}. ${a}`, 60, 290 + i * 48); }); }
     recent.forEach((q, i) => {
-      const y = 186 + i * 128, who = q.from ? (q.from.name || String(q.from.account || '').split('@')[0]) : '—';
+      const y = 186 + i * 128, who = q.from ? partyName(q.from) : '—';
       x.fillStyle = q.from && q.from.team === 'HUMAN' ? '#b8700c' : '#0f7f97'; x.font = `800 28px ${F}`; x.fillText(who, 40, y);
       x.fillStyle = '#14202b'; x.font = `400 27px ${F}`; wrapText(x, q.content, 940, 2).forEach((l, k) => x.fillText(l, 40, y + 40 + k * 36));
     });
@@ -400,11 +400,11 @@ function buildFloor(teams, needShared) {
 
 // ---------- people ----------
 const SKIN = 0xf0c8a4, PANTS = 0x2d3640;
-function makePerson(color) {
-  const g = new THREE.Group();
-  const shirt = new THREE.MeshStandardMaterial({ color, roughness: .6 });
-  const skin = new THREE.MeshStandardMaterial({ color: SKIN, roughness: .7 });
-  const pants = new THREE.MeshStandardMaterial({ color: PANTS, roughness: .8 });
+// A low-poly person. `look` (config.agents[].look) sets hair colour/style, clothes, skin and accessories.
+function makePerson(color, look = {}) {
+  const g = new THREE.Group(), mats = [];
+  const mat = (c, r = .7) => { const m = new THREE.MeshStandardMaterial({ color: c, roughness: r }); mats.push(m); return m; };
+  const shirt = mat(look.shirt || color, .6), skin = mat(look.skin || SKIN), pants = mat(look.pants || PANTS, .8);
   const hips = new THREE.Group(); hips.position.y = .5; g.add(hips);
   const legs = new THREE.Mesh(new THREE.BoxGeometry(.3, .5, .2), pants); legs.position.y = -.25; hips.add(legs);
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(.2, .3, 4, 12), shirt); torso.position.y = .84; g.add(torso);
@@ -417,7 +417,37 @@ function makePerson(color) {
   const ring = new THREE.Mesh(new THREE.RingGeometry(.34, .42, 32), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .75, side: THREE.DoubleSide, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = .02; g.add(ring);
   const cup = new THREE.Mesh(new THREE.CylinderGeometry(.045, .04, .1, 10), new THREE.MeshStandardMaterial({ color: 0xffffff })); cup.position.set(0, -.44, -.03); cup.visible = false; armR.add(cup);
-  return { g, hips, torso, head, armL, armR, ring, cup, mats: [shirt, skin, pants] };
+  dress({ g, head, torso, mat }, look);
+  return { g, hips, torso, head, armL, armR, ring, cup, mats };
+}
+// Hair and accessories. The face looks toward -z.
+function dress({ g, head, torso, mat }, look) {
+  const add = (parent, geo, m, x, y, z, rx = 0, ry = 0, rz = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.set(rx, ry, rz); parent.add(o); return o; };
+  const style = look.style || 'short', extra = new Set(look.extra || []);
+  if (look.hair) {
+    const hair = mat(look.hair, .85);
+    // cap: upper part of a slightly larger sphere, tipped back so the forehead stays visible
+    const cap = add(head, new THREE.SphereGeometry(.162, 18, 10, 0, Math.PI * 2, 0, Math.PI * .55), hair, 0, .012, .012, .38);
+    if (style === 'spiky') for (const [x, y, z, rx, rz] of [[0, .14, .04, -.5, 0], [-.08, .12, .05, -.4, .55], [.08, .12, .05, -.4, -.55], [-.04, .1, .12, -1.1, .3], [.04, .1, .12, -1.1, -.3], [0, .13, -.06, .35, 0], [-.11, .05, .06, -.3, 1.1], [.11, .05, .06, -.3, -1.1]])
+      add(head, new THREE.ConeGeometry(.06, .19, 6), hair, x * 1.25, y * 1.1, z * 1.2, -rx * 1.15, 0, rz * 1.15);
+    if (style === 'long') add(head, new THREE.CapsuleGeometry(.12, .3, 3, 10), hair, 0, -.18, .07, -.12);
+    if (style === 'ponytail') { add(head, new THREE.SphereGeometry(.05, 8, 6), hair, 0, .13, .1); for (const rz of [-.5, 0, .5]) add(head, new THREE.ConeGeometry(.035, .14, 5), hair, Math.sin(rz) * .05, .2, .13, -.6, 0, rz); }
+    if (style === 'lowtail') add(head, new THREE.CapsuleGeometry(.03, .26, 3, 6), hair, 0, -.2, .16, .15);
+    if (style === 'twintail') for (const sx of [-1, 1]) add(head, new THREE.CapsuleGeometry(.035, .26, 3, 6), hair, sx * .07, -.22, .15, .2);
+    if (style === 'bun') add(head, new THREE.SphereGeometry(.07, 10, 8), hair, 0, .12, .11);
+    cap.userData.hair = true;
+  }
+  if (extra.has('headband') || extra.has('hairband')) {
+    const band = extra.has('hairband') ? mat(0xc8323c, .6) : mat(0x283a5c, .6);
+    add(head, new THREE.TorusGeometry(.158, .016, 6, 24), band, 0, .055, 0, Math.PI / 2 + .18);
+    if (extra.has('headband')) add(head, new THREE.BoxGeometry(.11, .045, .012), mat(0xc9d1d9, .3), 0, .07, -.152, -.18);
+  }
+  if (extra.has('mask')) add(head, new THREE.SphereGeometry(.158, 16, 8, Math.PI * 1.1, Math.PI * .8, Math.PI * .47, Math.PI * .33), mat(0x1f2a3d, .8), 0, 0, 0);
+  if (extra.has('vest')) add(g, new THREE.CapsuleGeometry(.215, .22, 4, 12), mat(0x5d6b3c, .8), 0, .88, 0);
+  if (extra.has('cape')) add(g, new THREE.BoxGeometry(.5, .78, .03), mat(look.capeColor || 0xf2f2ee, .8), 0, .7, .22, -.08);
+  if (extra.has('cloak')) { const cl = mat(0x16171d, .8); add(g, new THREE.CylinderGeometry(.22, .3, .8, 12), cl, 0, .68, 0);
+    for (const [x, y, z] of [[.12, .8, .2], [-.15, .55, .22], [.18, .5, -.2], [-.1, .85, -.21]]) add(g, new THREE.SphereGeometry(.05, 8, 6), mat(0xc0282d, .7), x, y, z).scale.set(1.4, .8, .4); }
+  if (extra.has('gourd')) { const gd = mat(0xb68a5a, .7); add(g, new THREE.SphereGeometry(.15, 12, 10), gd, .04, .72, .24); add(g, new THREE.SphereGeometry(.1, 12, 10), gd, -.02, .98, .24); }
 }
 function setFaded(p, faded) { for (const m of p.mats) { m.transparent = faded; m.opacity = faded ? .42 : 1; m.depthWrite = !faded; } p.ring.visible = !faded; }
 
@@ -474,6 +504,8 @@ const deskOf = new Map();   // key -> seat anchor (reassigned when the floor is 
 const held = new Map();     // anchor id -> key
 let lastGroups = [], lastOpts = { fresh: new Set(), active: true }, firstPlacement = true;
 
+const nickOf = g => g.nick || g.account.split('@')[0];
+const partyName = q => window.cloudlogBridge && window.cloudlogBridge.name ? window.cloudlogBridge.name(q) : (q && (q.name || String(q.account || '').split('@')[0])) || '—';
 function colorOf(g) { const m = /var\((--[\w-]+)\)/.exec(g.team ? g.team.hue : ''); return css(m ? m[1] : '--t5') || '#888'; }
 const homeOf = g => floor.byTeam.get(OFFICE_TEAMS.includes(g.teamKey) ? g.teamKey : '__shared') || floor.rooms.find(r => r.kind === 'office');
 function release(key) { for (const [id, k] of held) if (k === key) held.delete(id); }
@@ -599,7 +631,7 @@ function upsert(g, i) {
   let ag = agents.get(g.key);
   const mode = classify(g), color = colorOf(g);
   if (!ag) {
-    const p = makePerson(new THREE.Color(color)); p.g.userData.key = g.key;
+    const p = makePerson(new THREE.Color(color), g.look || {}); p.g.userData.key = g.key;
     const label = makeLabel(), bubble = makeBubble();
     ag = { key: g.key, group: g, p, label, bubble, mode, step: i, lift: (agents.size % 2) * .25, path: [], walking: false, wait: Infinity, phase: Math.random() * 6, seated: false, ov: null };
     scene.add(p.g); scene.add(label.spr); scene.add(bubble.spr); agents.set(g.key, ag);
@@ -607,10 +639,11 @@ function upsert(g, i) {
     else { const d = B2T(homeOf(g).anchors.door.position); p.g.position.set(d.x, 0, d.z); goTo(ag, targetFor(ag)); }
   } else { ag.group = g; if (ag.mode !== mode) { ag.mode = mode; if (!ag.ov) goTo(ag, targetFor(ag)); } }   // a viewer action finishes first
   ag.mode = mode; ag.group = g;
-  ag.p.mats[0].color.set(color); ag.p.ring.material.color.set(color);
+  if (!(g.look && g.look.shirt)) ag.p.mats[0].color.set(color);
+  ag.p.ring.material.color.set(color);
   setFaded(ag.p, mode === 'idle' && !ag.ov); ag.p.cup.visible = mode === 'rest';
   const topic = mode === 'meet' && g.meetMsg ? '說：' + g.meetMsg.content : mode === 'rest' && ag.activity ? ag.activity : g.latest.topic;
-  ag.label.set({ team: g.team ? g.team.label : '—', teamColor: color, name: g.account.split('@')[0], state: STATES[mode].label,
+  ag.label.set({ team: g.team ? g.team.label : '—', teamColor: color, name: nickOf(g), state: STATES[mode].label,
     stateColor: css(STATES[mode].tok) || '#ccc', topic, faded: mode === 'idle' });
   const desk = deskFor(ag), scr = floor.screens.get(desk.id); if (scr) scr.agent = ag;
 }
@@ -716,9 +749,23 @@ renderer.setAnimationLoop(() => {
     const bb = ag.bubble; if (bb.spr.visible && t > bb.until) bb.spr.visible = false;
     if (bb.spr.visible) { bb.spr.position.copy(ag.label.spr.position); bb.spr.center.y = showNames ? -.75 : 0; bb.spr.scale.set(s * 2, s * 2 * 96 / 512, 1); }
   }
+  meetingTalk(t);
   if (menu.el && menu.track) placeMenu();
   controls.update(); renderer.render(scene, camera);
 });
+
+// Meeting speech: one short bubble at a time, taking turns among people sitting in the meeting room.
+const TALK_EVERY = 6, TALK_CHARS = 14;
+let talkAt = 0, talkTurn = 0;
+function meetingTalk(t) {
+  if (t < talkAt) return;
+  talkAt = t + TALK_EVERY;
+  const list = [...agents.values()].filter(ag => ag.mode === 'meet' && ag.group.meetMsg && !ag.ov && !ag.walking)
+    .sort((a, b) => a.group.meetMsg.ts - b.group.meetMsg.ts);
+  if (!list.length) return;
+  const ag = list[talkTurn++ % list.length], text = String(ag.group.meetMsg.content || '').replace(/\s+/g, ' ').trim();
+  if (text) say(ag, text.length > TALK_CHARS ? text.slice(0, TALK_CHARS) + '…' : text, TALK_EVERY - 1);
+}
 
 // ---------- picking + action menu ----------
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
@@ -756,7 +803,7 @@ function showMenu(title, sub, items, track) {
   box.append(el); menu.el = el; menu.track = track; placeMenu();
   const first = list.querySelector('button:not(:disabled)'); if (first) first.focus({ preventScroll: true });
 }
-const shortName = ag => ag.group.account.split('@')[0];
+const shortName = ag => nickOf(ag.group);
 function stateText(ag) { return ag.ov ? '指揮中：' + ag.ov.label : STATES[ag.mode].label + (ag.mode === 'rest' && ag.activity ? '・' + ag.activity : ''); }
 function personMenu(ag) {
   const items = [{ label: '查看紀錄與指令', cls: 'pri', run: () => { if (window.cloudlogBridge) window.cloudlogBridge.open(ag.key); } }, { sep: '讓他做…' }];

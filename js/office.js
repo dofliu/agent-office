@@ -20,7 +20,8 @@ const DEV = {
   fridge:    { name: '冰箱',   act: '打開冰箱',   run: '門開著', fx: 0x9fd8ff, done: '關門' },
   vending:   { name: '販賣機', act: '買一瓶飲料', run: '出貨中', fx: 0xb9f0c4, done: '咚！' },
   sink:      { name: '水槽',   act: '開水龍頭',   run: '流水中', fx: 0x9fd8ff, done: '洗好了' },
-  water:     { name: '飲水機', act: '倒一杯熱水', run: '出水中', fx: 0xbfe6ff, steam: true, done: '水好了' }
+  water:     { name: '飲水機', act: '倒一杯熱水', run: '出水中', fx: 0xbfe6ff, steam: true, done: '水好了' },
+  studio:    { name: '錄音設備', act: '開始錄音', run: '錄音中', fx: 0xff5a4f, done: '錄好了' }
 };
 const RUN_SEC = 8;
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -30,11 +31,12 @@ const STATES = {
   work:    { label: '工作中', tok: '--s-work' },
   meet:    { label: '開會',   tok: '--s-meet' },
   present: { label: '報告',   tok: '--s-present' },
+  record:  { label: '錄製',   tok: '--s-record' },
   patrol:  { label: '巡檢',   tok: '--s-patrol' },
   rest:    { label: '休息',   tok: '--s-break' },
   idle:    { label: '閒置',   tok: '--s-idle' }
 };
-const ORDER = ['work', 'meet', 'present', 'patrol', 'rest', 'idle'];
+const ORDER = ['work', 'meet', 'present', 'record', 'patrol', 'rest', 'idle'];
 let showNames = true;
 try { showNames = localStorage.getItem('cloudlog.names') !== '0'; } catch {}
 const teamKey = t => (t || '').replace(/^team\s+/i, '').trim().toLowerCase() || '—';
@@ -45,6 +47,7 @@ function classify(g) {
   if (age > 6 * HOUR) return 'idle';
   if (age > 45 * MIN) return 'rest';
   if (/會議|討論|開會|規劃|評估|審查|訪談|review|meeting/i.test(txt)) return 'meet';
+  if (/錄影|錄音|錄課|錄製|旁白|配音|拍攝|直播|shorts|podcast/i.test(txt)) return 'record';
   if (/巡檢|檢查|測試|驗證|監看|test|check/i.test(txt)) return 'patrol';
   if (/簡報|報告|週報|論文|投稿|教材|講義|slides|manuscript/i.test(txt)) return 'present';
   return 'work';
@@ -156,7 +159,8 @@ function floorPlane(group, x0, y0, x1, y1, color, opacity = 1, lift = 0) {
 }
 function textPlane(text, color, w, h) {
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 256; const x = cv.getContext('2d');
-  x.font = '800 150px "Noto Sans TC","PingFang TC",sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  let fs = 150; do { x.font = `800 ${fs}px "Noto Sans TC","PingFang TC",sans-serif`; } while (x.measureText(text).width > 980 && (fs -= 10) > 40);
+  x.textAlign = 'center'; x.textBaseline = 'middle';
   x.fillStyle = color; x.fillText(text, 512, 132);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: .55, depthWrite: false }));
@@ -217,7 +221,7 @@ function buildLibRoom(room, src, navSrc, meta, signText) {
   return { A, door: { id: room.id + ':door', type: 'STAND', position: [d0.position[0] + room.x0, room.y0 - .8, 0], yaw_deg: 0 } };
 }
 function buildMeeting(room) {
-  const { A, door } = buildLibRoom(room, lib.meetScene, lib.meetNav, meetMeta, '會議室');
+  const { A, door } = buildLibRoom(room, lib.meetScene, lib.meetNav, meetMeta, 'B+ 會議／試播室');
   room.anchors = { seats: A.filter(a => /SEAT_meeting/.test(a.id)), stands: A.filter(a => /STAND_/.test(a.id)), water: A.filter(a => /POI_water/.test(a.id)), door };
   for (const a of room.anchors.water) addDevice(room, { ...a, use: 'water' }, scene, room.extra);
   // projector screen on the north side showing the current meeting
@@ -229,6 +233,122 @@ function buildMeeting(room) {
   const leg = new THREE.Mesh(new THREE.BoxGeometry(.08, .55, .08), new THREE.MeshStandardMaterial({ color: 0x222a33 })); leg.position.set(0, -1.28, -.05); scr.add(leg);
   scene.add(scr); room.extra.push(scr);
   floor.projector = { mesh: scr, cv, ctx: cv.getContext('2d'), tex, meetingId: null }; projSig = '';
+  // B+ upgrade (meeting M202611030011skun): kanban wall (west), 1080p 16:9 trial projection (east), rotatable portrait monitor
+  const kb = panel(2.4, 1.35, 1024, 576, 0x222a33); kb.mesh.position.set(room.x0 + .12, 1.55, -(room.y0 + 3.2)); kb.mesh.rotation.y = Math.PI / 2;
+  scene.add(kb.mesh); room.extra.push(kb.mesh); floor.kanban = kb; kb.mesh.userData.plan = true;
+  const tr = panel(2.2, 1.24, 768, 432, 0x222a33); tr.mesh.position.set(room.x0 + 7.88, 1.62, -(room.y0 + 2.3)); tr.mesh.rotation.y = -Math.PI / 2;
+  scene.add(tr.mesh); room.extra.push(tr.mesh); floor.trial = tr; tr.mesh.userData.plan = true;
+  const pm = panel(.36, .64, 216, 384, 0x1d242c, .6); pm.mesh.position.set(room.x0 + 7.5, 1.22, -(room.y0 + 4.05)); pm.mesh.rotation.y = -Math.PI / 2;
+  scene.add(pm.mesh); room.extra.push(pm.mesh); floor.portrait = pm; drawPortrait(pm);
+}
+// A canvas screen with a bezel and a stand leg.
+function panel(w, h, cw, ch, frameColor, legH = 0) {
+  const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex }));
+  const fm = new THREE.MeshStandardMaterial({ color: frameColor });
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(w + .1, h + .1, .05), fm); frame.position.z = -.035; mesh.add(frame);
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(.07, legH || Math.max(.2, 1.55 - h / 2 - .9), .07), fm);
+  leg.position.set(0, -h / 2 - (legH || Math.max(.2, 1.55 - h / 2 - .9)) / 2, -.05); mesh.add(leg);
+  return { mesh, cv, ctx: cv.getContext('2d'), tex };
+}
+function drawKanban() {
+  const kb = floor && floor.kanban; if (!kb) return;
+  const list = [...agents.values()].sort((a, b) => ORDER.indexOf(a.mode) - ORDER.indexOf(b.mode) || nickOf(a.group).localeCompare(nickOf(b.group)));
+  const sig = JSON.stringify(list.map(a => [nickOf(a.group), a.mode, a.group.pending || 0, colorOf(a.group)])); if (sig === kb.sig) return; kb.sig = sig;
+  const x = kb.ctx; x.fillStyle = '#0f1a24'; x.fillRect(0, 0, 1024, 576); x.textBaseline = 'middle';
+  x.fillStyle = '#e3ecf3'; x.font = `800 38px ${F}`; x.fillText('看板牆 · 代理人進度', 36, 44);
+  const cnt = {}; for (const a of list) cnt[a.mode] = (cnt[a.mode] || 0) + 1;
+  x.font = `500 22px ${F}`; let cx = 520;
+  for (const k of ORDER) if (cnt[k]) { x.fillStyle = css(STATES[k].tok) || '#ccc'; x.beginPath(); x.arc(cx, 46, 8, 0, 7); x.fill(); x.fillStyle = '#b9c7d3'; x.fillText(`${STATES[k].label} ${cnt[k]}`, cx + 14, 46); cx += x.measureText(`${STATES[k].label} ${cnt[k]}`).width + 40; }
+  x.fillStyle = '#253647'; x.fillRect(36, 80, 952, 2);
+  const rows = Math.ceil(list.length / 2) || 1, rh = Math.min(70, 470 / rows);
+  list.forEach((a, i) => { const col = i < rows ? 0 : 1, row = col ? i - rows : i, bx = 36 + col * 484, by = 100 + row * rh;
+    x.fillStyle = '#15222f'; x.beginPath(); x.roundRect(bx, by, 464, rh - 10, 10); x.fill();
+    x.fillStyle = colorOf(a.group); x.fillRect(bx, by, 8, rh - 10);
+    x.fillStyle = css(STATES[a.mode].tok) || '#ccc'; x.beginPath(); x.arc(bx + 34, by + (rh - 10) / 2, 10, 0, 7); x.fill();
+    x.fillStyle = '#e3ecf3'; x.font = `700 ${Math.round(rh * .42)}px ${F}`; x.fillText(nickOf(a.group), bx + 56, by + (rh - 10) / 2);
+    x.fillStyle = '#8ea1b2'; x.font = `500 ${Math.round(rh * .32)}px ${F}`; x.textAlign = 'right';
+    x.fillText(STATES[a.mode].label + (a.group.pending ? ` · 待辦 ${a.group.pending}` : '') + ' · ' + (a.group.team ? a.group.team.label : ''), bx + 448, by + (rh - 10) / 2); x.textAlign = 'left'; });
+  kb.tex.needsUpdate = true;
+}
+function drawTrial(t) {   // 1080p 16:9 trial projection: a looping slide with a turbine and a timeline scrubber
+  const tr = floor && floor.trial; if (!tr) return;
+  const x = tr.ctx, W = 768, H = 432, f = (t * .06) % 1;
+  const grd = x.createLinearGradient(0, 0, 0, H); grd.addColorStop(0, '#173d55'); grd.addColorStop(1, '#3f86a6'); x.fillStyle = grd; x.fillRect(0, 0, W, H);
+  x.textBaseline = 'middle'; x.fillStyle = '#ffffff'; x.font = `800 30px ${F}`; x.fillText('試播 · 1920×1080 · 16:9', 28, 40);
+  x.fillStyle = 'rgba(255,255,255,.75)'; x.font = `500 18px ${F}`; x.fillText('簡報／動畫實測與 QA 截圖比對', 28, 76);
+  const cx = 560, cy = 190; x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineWidth = 6; x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx, 372); x.stroke();
+  x.fillStyle = '#ffffff'; for (let k = 0; k < 3; k++) { x.save(); x.translate(cx, cy); x.rotate(t * 1.4 + k * 2.094); x.beginPath(); x.moveTo(-5, 0); x.quadraticCurveTo(-10, -50, 0, -104); x.quadraticCurveTo(10, -50, 5, 0); x.fill(); x.restore(); }
+  x.beginPath(); x.arc(cx, cy, 8, 0, 7); x.fill();
+  for (let i = 0; i < 4; i++) { x.fillStyle = 'rgba(255,255,255,' + (i / 4 < f ? .9 : .35) + ')'; x.fillRect(28, 130 + i * 44, 300 - i * 40, 16); }
+  x.fillStyle = 'rgba(0,0,0,.35)'; x.fillRect(0, H - 40, W, 40); x.fillStyle = 'rgba(255,255,255,.35)'; x.fillRect(28, H - 22, W - 56, 4);
+  x.fillStyle = '#ffcf5a'; x.fillRect(28, H - 22, (W - 56) * f, 4); x.beginPath(); x.arc(28 + (W - 56) * f, H - 20, 8, 0, 7); x.fill();
+  tr.tex.needsUpdate = true;
+}
+function drawPortrait(pm) {   // rotatable portrait monitor: exam sheet vs. answer key side by side
+  const x = pm.ctx; x.fillStyle = '#f7f9fb'; x.fillRect(0, 0, 216, 384); x.fillStyle = '#14202b'; x.font = `700 20px ${F}`; x.textBaseline = 'middle';
+  x.fillText('題卷 ↔ 解答', 14, 26); x.fillStyle = '#d5dce3'; x.fillRect(14, 46, 188, 2);
+  for (let i = 0; i < 9; i++) { x.fillStyle = '#9aa8b5'; x.fillRect(14, 64 + i * 34, 120 + (i * 37) % 60, 10); x.fillStyle = i % 3 === 2 ? '#c0392b' : '#2c8547'; x.fillRect(184, 62 + i * 34, 14, 14); }
+  pm.tex.needsUpdate = true;
+}
+
+// D recording studio (same meeting): mic desk with acoustic shield, a 9:16 shooting spot with ring light and backdrop, ON AIR light.
+function buildStudio(room) {
+  const { x0, y0, w, d } = room, g = new THREE.Group(), dx = x0 + 1.4;
+  const M = (c, r = .8, e) => new THREE.MeshStandardMaterial({ color: c, roughness: r, ...(e ? { emissive: e, emissiveIntensity: .9 } : {}) });
+  const box = (sx, sy, sz, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, z); g.add(o); return o; };
+  const cyl = (rt, rb, h, m, x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 12), m); o.position.set(x, y, z); g.add(o); return o; };
+  floorPlane(g, x0, y0, x0 + w, y0 + d, 0x3a3f4a, .55, .002);
+  wall(g, x0, y0, x0, y0 + d); wall(g, x0 + w, y0, x0 + w, y0 + d); wall(g, x0, y0 + d, x0 + w, y0 + d);
+  wall(g, x0, y0, dx - .6, y0); wall(g, dx + .6, y0, x0 + w, y0);
+  navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3); navRect(dx - .45, y0 - .6, dx + .45, y0 + .6);
+  const sign = textPlane('錄課棚', '#c0392b', 3.2, .8); sign.position.set(x0 + w / 2, .02, -(y0 + .8)); g.add(sign);
+  // acoustic foam on the inside of the north and west walls
+  const foam = M(0x2a2f3a, 1);
+  for (let i = 0; i < 9; i++) box(.5, .8, .06, foam, x0 + .45 + i * .6, .5, -(y0 + d - .1));
+  for (let i = 0; i < 6; i++) box(.06, .8, .5, foam, x0 + .1, .5, -(y0 + .7 + i * .8));
+  // mic desk (north), facing north
+  const desk = M(0x8a7a66, .7), dark = M(0x1d222b, .5), metal = M(0x9aa3ad, .35);
+  const deskX = x0 + 2.4, deskY = y0 + d - 1.3;
+  box(1.6, .06, .7, desk, deskX, .75, -deskY); for (const sx of [-.72, .72]) box(.05, .72, .6, desk, deskX + sx, .37, -deskY);
+  cyl(.012, .012, .35, metal, deskX + .15, .95, -(deskY - .12)); const mic = cyl(.04, .03, .14, dark, deskX + .15, 1.15, -(deskY - .12)); mic.rotation.x = .5;
+  const shield = new THREE.Mesh(new THREE.CylinderGeometry(.16, .16, .2, 14, 1, true, Math.PI * .5, Math.PI), M(0x3b4250, 1)); shield.material.side = THREE.DoubleSide;
+  shield.position.set(deskX + .15, 1.15, -(deskY - .02)); g.add(shield);
+  box(.55, .34, .03, dark, deskX - .4, 1.0, -(deskY + .2));
+  box(.5, .04, .45, M(0x4a5260, .9), deskX, .46, -(deskY - .75));   // stool
+  cyl(.03, .03, .44, metal, deskX, .22, -(deskY - .75));
+  // 9:16 shooting spot (east): backdrop, phone on a tripod with a ring light, two softboxes
+  const sx0 = x0 + w - .35, sy = y0 + 2.3;
+  box(.04, 1.7, 1.6, M(0x5d7f8f, 1), sx0, .85, -sy);
+  const camX = sx0 - 1.9; for (const a of [0, 2.1, 4.2]) { const lg = cyl(.012, .012, 1.2, dark, camX + Math.cos(a) * .12, .6, -(sy + Math.sin(a) * .12)); lg.rotation.set(Math.sin(a) * .2, 0, -Math.cos(a) * .2); }
+  box(.02, .3, .16, dark, camX + .02, 1.3, -sy);
+  const ringMat = M(0xffffff, .3, 0xfff2d6);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(.2, .025, 8, 28), ringMat); ring.position.set(camX, 1.3, -sy); ring.rotation.y = Math.PI / 2; g.add(ring);
+  for (const oy of [-1.05, 1.05]) { cyl(.015, .015, 1.5, dark, camX + .5, .75, -(sy + oy)); const sb = box(.08, .45, .45, M(0xffffff, .4, 0xfff6e8), camX + .55, 1.55, -(sy + oy)); sb.rotation.y = oy > 0 ? -.5 : .5; }
+  // ON AIR light above the door, facing the corridor
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 96; const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const air = new THREE.Mesh(new THREE.PlaneGeometry(.9, .34), new THREE.MeshBasicMaterial({ map: tex }));
+  air.position.set(dx + 1.05, 1.3, -(y0 - .02)); air.rotation.y = Math.PI; g.add(air);
+  const airBack = new THREE.Mesh(new THREE.BoxGeometry(.96, .4, .05), dark); airBack.position.set(dx + 1.05, 1.3, -(y0 + .015)); g.add(airBack);
+  cyl(.02, .02, .3, dark, dx + 1.05, 1.0, -(y0 + .02));
+  floor.onAir = { cv, ctx: cv.getContext('2d'), tex, on: null };
+  setOnAir(false);
+  room.anchors = {
+    spots: [{ id: room.id + ':desk', type: 'SEAT', use: 'studio', position: [deskX, deskY - .75, 0], yaw_deg: 0 },
+            { id: room.id + ':cam', type: 'STAND', position: [sx0 - .6, sy, 0], yaw_deg: 90 }],
+    door: { id: room.id + ':door', type: 'STAND', position: [dx, y0 - .8, 0], yaw_deg: 0 }
+  };
+  navRect(deskX - .85, deskY - .4, deskX + .85, deskY + .4, false);
+  navRect(camX - .25, sy - .25, camX + .25, sy + .25, false);
+  room.group = g; scene.add(g);
+  addDevice(room, room.anchors.spots[0], g, null);
+}
+function setOnAir(on) {
+  const a = floor && floor.onAir; if (!a || a.on === on) return; a.on = on;
+  const x = a.ctx; x.fillStyle = on ? '#d2202a' : '#3a3f48'; x.fillRect(0, 0, 256, 96);
+  x.fillStyle = on ? '#ffffff' : '#8a929c'; x.font = `800 52px ${F}`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('ON AIR', 128, 50);
+  a.tex.needsUpdate = true;
 }
 function buildPantry(room) {
   const { A, door } = buildLibRoom(room, lib.pantryScene, lib.pantryNav, pantryMeta, '茶水間');
@@ -310,7 +430,7 @@ function drawScreen(scr, ag, t) {
   }
   // screensaver: a turning wind turbine, the clock and where the agent went
   scr.sig = 's';
-  const away = ag.mode === 'meet' ? '開會中' : ag.mode === 'rest' ? '休息中' : ag.mode === 'patrol' ? '巡檢中' : ag.mode === 'present' ? '報告中' : ag.mode === 'idle' ? '閒置' : '離開座位';
+  const away = ag.mode === 'meet' ? '開會中' : ag.mode === 'rest' ? '休息中' : ag.mode === 'patrol' ? '巡檢中' : ag.mode === 'present' ? '報告中' : ag.mode === 'record' ? '錄製中' : ag.mode === 'idle' ? '閒置' : '離開座位';
   const grd = x.createLinearGradient(0, 0, 0, 216); grd.addColorStop(0, '#1f5f86'); grd.addColorStop(1, '#5fa8c8'); x.fillStyle = grd; x.fillRect(0, 0, 384, 216);
   const cx = 270 + Math.sin(t * .2 + ag.phase) * 30, cy = 92;
   x.strokeStyle = 'rgba(255,255,255,.75)'; x.lineWidth = 4; x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx, 214); x.stroke();
@@ -377,7 +497,7 @@ function buildFloor(teams, needShared) {
     x += w + GAP;
   }
   const southW = Math.max(x - GAP, 8);
-  const north = [{ id: 'meet', kind: 'meeting', w: 8, d: 6 }, { id: 'pantry', kind: 'pantry', w: 8, d: 6 }];
+  const north = [{ id: 'meet', kind: 'meeting', w: 8, d: 6 }, { id: 'pantry', kind: 'pantry', w: 8, d: 6 }, { id: 'studio', kind: 'studio', w: 6, d: 6 }];
   if (needShared) north.push({ id: 'office:__shared', kind: 'office', team: '__shared', label: '共用座位', color: css('--muted') || '#566676', pods: Math.max(1, Math.ceil((needShared + 1) / 4)), d: D, doorSide: 'S' });
   for (const r of north) if (r.kind === 'office') r.w = Math.max(7, 2.2 + r.pods * 3.4 + 1.4);
   const northW = north.reduce((s, r) => s + r.w, 0) + GAP * (north.length - 1);
@@ -390,11 +510,11 @@ function buildFloor(teams, needShared) {
   floorPlane(base, 0, D, W, D + CORR, 0xc9d2d9, 1, .001);
   scene.add(base); floor.extra.push(base);
   navRect(.3, D + .3, W - .3, D + CORR - .3);
-  for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : buildOffice(r);
+  for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : r.kind === 'studio' ? buildStudio(r) : buildOffice(r);
   // corridor waypoints for patrols
   floor.corridor = [0.15, 0.4, 0.65, 0.9].map((f, i) => ({ id: 'corr' + i, type: 'STAND', position: [W * f, D + CORR / 2, 0], yaw_deg: 0 }));
   floor.byTeam = new Map(rooms.filter(r => r.kind === 'office').map(r => [r.team, r]));
-  floor.meeting = rooms.find(r => r.kind === 'meeting'); floor.pantry = rooms.find(r => r.kind === 'pantry');
+  floor.meeting = rooms.find(r => r.kind === 'meeting'); floor.pantry = rooms.find(r => r.kind === 'pantry'); floor.studio = rooms.find(r => r.kind === 'studio');
   drawProjector(); fit();
 }
 
@@ -528,6 +648,7 @@ function targetFor(ag) {
   switch (ag.mode) {
     case 'meet': return claim(k, meet.seats) || jitter(meet.door, k, .8);
     case 'present': return claim(k, meet.stands) || claim(k, home.anchors.board) || deskFor(ag);
+    case 'record': { const st = floor.studio && floor.studio.anchors; return st ? claim(k, st.spots) || jitter(st.door, k, .8) : deskFor(ag); }
     case 'patrol': {
       const route = [home.anchors.board[0], home.anchors.water[0], home.anchors.door, ...floor.corridor, meet.door, home.anchors.door];
       return jitter(route[ag.step++ % route.length], k + ag.step, .35);
@@ -561,7 +682,7 @@ function arrive(ag, a) {
 // ---------- viewer-driven actions (local only: nothing is written to Drive) ----------
 const ACTIONS = [
   ['wave', '打招呼'], ['stretch', '伸懶腰'], ['pantry', '去茶水間'], ['meet', '去會議室'],
-  ['board', '到白板前'], ['patrol', '巡一圈'], ['desk', '回座位工作']
+  ['board', '到白板前'], ['studio', '去錄課棚'], ['patrol', '巡一圈'], ['desk', '回座位工作']
 ];
 const ACT_NAME = Object.fromEntries(ACTIONS);
 const now = () => clock.elapsedTime;
@@ -573,7 +694,8 @@ function devSay(dev, text, sec = 2.5) {
 }
 function deviceStep(ag, dev) {
   const spot = claim(ag.key, [dev.anchor]) || jitter(dev.anchor, ag.key, .5);
-  return { to: spot, anim: 'use', hold: 7, device: dev, say: USE_ZH[dev.use] || '使用設備' };
+  return dev.use === 'studio' ? { to: spot, anim: 'record', hold: 12, device: dev, say: '開始錄音' }
+    : { to: spot, anim: 'use', hold: 7, device: dev, say: USE_ZH[dev.use] || '使用設備' };
 }
 function planFor(ag, kind, dev) {
   const k = ag.key, home = homeOf(ag.group), meet = floor.meeting.anchors, pt = floor.pantry && floor.pantry.anchors;
@@ -594,6 +716,8 @@ function planFor(ag, kind, dev) {
     case 'patrol': return [home.anchors.water[0], home.anchors.door, ...floor.corridor, home.anchors.door]
       .map((a, i) => ({ to: jitter(a, k + i, .35), anim: 'patrol', hold: 1.8 }));
     case 'desk': return [{ to: deskFor(ag), anim: 'work', hold: 40, say: '回來工作' }];
+    case 'studio': { const st = floor.studio && floor.studio.anchors; if (!st) return [];
+      return [{ to: claim(k, st.spots) || jitter(st.door, k, .8), anim: 'record', hold: 20, say: '開始錄製' }]; }
   }
   return [];
 }
@@ -688,7 +812,7 @@ function renderLegend() {
   t.onclick = () => { showNames = !showNames; try { localStorage.setItem('cloudlog.names', showNames ? '1' : '0'); } catch {} renderLegend(); };
   legend.append(t);
   if (floor) { const teamRooms = floor.rooms.filter(r => r.kind === 'office' && r.team !== '__shared').length, shared = floor.byTeam.has('__shared');
-    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室 · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''} ＋ 會議室 ＋ 茶水間 · ${agents.size} 位代理人`; }
+    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室 · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''} ＋ B+ 會議室 ＋ 茶水間 ＋ 錄課棚 · ${agents.size} 位代理人`; }
 }
 
 // ---------- animation ----------
@@ -719,6 +843,8 @@ function animate(ag, dt, t) {
     case 'sip': p.armR.rotation.x = 1.5 + Math.max(0, Math.sin(t * .9 + ph)) * .9; p.armL.rotation.z = -.08; p.head.rotation.y = Math.sin(t * .6 + ph) * .3; break;
     case 'work': p.armL.rotation.x = 1.25 + Math.sin(t * 13 + ph) * .1; p.armR.rotation.x = 1.25 + Math.sin(t * 13 + ph + 1.7) * .1; p.head.rotation.x = .12 + Math.sin(t * 1.3 + ph) * .04; break;
     case 'meet': p.armL.rotation.x = .9; p.armR.rotation.x = .9 + Math.max(0, Math.sin(t * .8 + ph)) * .7; p.head.rotation.x = Math.max(0, Math.sin(t * 2.2 + ph)) * .18; p.head.rotation.y = Math.sin(t * .5 + ph) * .35; break;
+    case 'record': p.head.rotation.x = Math.max(0, Math.sin(t * 6 + ph)) * .08; p.head.rotation.y = Math.sin(t * .7 + ph) * .15;
+      p.armR.rotation.x = 1.0 + Math.sin(t * 2.3 + ph) * .35; p.armL.rotation.x = ag.seated ? .9 : .5 + Math.sin(t * 1.7 + ph + 1) * .3; break;
     case 'present': p.armR.rotation.x = 2.3 + Math.sin(t * 2 + ph) * .25; p.armR.rotation.z = .25; p.armL.rotation.x = .3 + Math.sin(t * 1.4 + ph) * .2; break;
     case 'patrol': p.head.rotation.y = Math.sin(t * 1.6 + ph) * .7; p.armL.rotation.z = -.15; p.armR.rotation.x = .5; break;
     default: p.head.rotation.x = .35; p.armL.rotation.x = ag.seated ? .9 : 0; p.armR.rotation.x = ag.seated ? .9 : 0;
@@ -739,7 +865,10 @@ renderer.setAnimationLoop(() => {
     if (dev.bubble && dev.bubble.spr.visible && t > dev.bubble.until) dev.bubble.spr.visible = false;
     if (dev.bubble) { const s = camera.aspect < 1 ? .085 : .11; dev.bubble.spr.scale.set(s * 2, s * 2 * 96 / 512, 1); }
   }
-  if (floor && t - (floor.scrT || 0) > .5) { floor.scrT = t; for (const scr of floor.screens.values()) if (scr.agent) drawScreen(scr, scr.agent, t); }
+  if (floor && t - (floor.scrT || 0) > .5) { floor.scrT = t; for (const scr of floor.screens.values()) if (scr.agent) drawScreen(scr, scr.agent, t);
+    drawKanban(); drawTrial(t);
+    if (floor.studio) { const inside = ag => !ag.walking && ((ag.ov ? ag.ov.steps[ag.ov.i].anim === 'record' : ag.mode === 'record'));
+      setOnAir([...agents.values()].some(inside) || [...floor.devices.values()].some(d => d.use === 'studio' && d.runUntil > t)); } }
   for (const ag of agents.values()) {
     animate(ag, dt, t);
     const gp = ag.p.g.position;
@@ -835,11 +964,13 @@ renderer.domElement.addEventListener('pointerup', e => {
   ray.setFromCamera(ndc, camera);
   const targets = [...agents.values()].flatMap(ag => [ag.p.g, ...(showNames ? [ag.label.spr] : [])]);
   if (floor && floor.projector) targets.push(floor.projector.mesh);
+  if (floor && floor.kanban) targets.push(floor.kanban.mesh, floor.trial.mesh);
   if (floor) for (const dev of floor.devices.values()) targets.push(dev.hit, ...(showNames ? [dev.tag] : []));
   const hit = ray.intersectObjects(targets, true).find(h => h.object.visible || h.object.userData.device);
   if (!hit) { closeMenu(); return; }
   if (hit.object.userData.projector || (hit.object.parent && hit.object.parent.userData.projector)) { closeMenu(); if (window.cloudlogBridge) window.cloudlogBridge.meetings(floor.projector.meetingId || 'list'); return; }
   if (hit.object.userData.device) { deviceMenu(hit.object.userData.device); return; }
+  if (hit.object.userData.plan || (hit.object.parent && hit.object.parent.userData.plan)) { closeMenu(); if (window.cloudlogBridge && window.cloudlogBridge.plan) window.cloudlogBridge.plan(); return; }
   let o = hit.object; while (o && !o.userData.key) o = o.parent;
   const key = o ? o.userData.key : [...agents.values()].find(ag => ag.label.spr === hit.object)?.key;
   const ag = key && agents.get(key); if (ag) personMenu(ag); else closeMenu();

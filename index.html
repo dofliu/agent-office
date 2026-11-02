@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>雲端紀錄看板</title>
+<meta name="description" content="DofLab 代理人的工作紀錄、會議與指令，在 3D 辦公室裡即時呈現。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="eyebrow">Google Drive · 雲端紀錄資料夾</span>
+      <h1>雲端紀錄看板</h1>
+    </div>
+    <div class="controls">
+      <span class="sync-state" aria-live="polite"><span class="sync-dot" id="syncDot"></span><span id="syncText">準備中…</span></span>
+      <label class="iv" for="interval"><span class="iv-t">每</span>
+        <select id="interval" aria-label="自動更新間隔">
+          <option value="1">1 分鐘</option>
+          <option value="5" selected>5 分鐘</option>
+          <option value="15">15 分鐘</option>
+          <option value="30">30 分鐘</option>
+        </select>
+        <span class="iv-t">抓取一次</span></label>
+      <button class="btn primary" id="refresh" type="button">立即更新</button>
+      <a class="btn" id="adminLink" href="#" target="_blank" rel="noopener" hidden>管理台</a>
+    </div>
+  </header>
+
+  <section class="stats" aria-label="統計">
+    <div class="stat"><b id="sAcc">–</b><span>組（帳號 × TEAM）</span></div>
+    <div class="stat"><b id="sMail">–</b><span>個 email</span></div>
+    <div class="stat"><b id="sRec">–</b><span>筆紀錄</span></div>
+    <div class="stat"><b id="sToday">–</b><span>今日新增</span></div>
+    <div class="views" role="tablist" aria-label="檢視方式">
+      <button type="button" role="tab" id="vOffice" data-view="office" aria-selected="true">辦公室</button>
+      <button type="button" role="tab" id="vBubbles" data-view="bubbles" aria-selected="false">圓框</button>
+    </div>
+    <button type="button" class="btn sm meetbtn" id="meetBtn">會議</button>
+    <div class="chips" id="chips" role="group" aria-label="依 TEAM 篩選"></div>
+  </section>
+
+  <div id="notice" hidden></div>
+
+  <section class="office" id="office" aria-label="代理人辦公室">
+    <div class="o-info" id="oInfo">載入辦公室場景…</div>
+    <div class="o-legend" id="oLegend"></div>
+    <button type="button" class="o-full" id="oFull" aria-pressed="false">全螢幕</button>
+  </section>
+
+  <main class="stage" id="stage" aria-label="帳號與 TEAM 組合" hidden></main>
+
+  <footer class="src">
+    <span>資料來源：Google Drive「雲端紀錄」「會議室」「指令」資料夾（唯讀）</span>
+    <span>時間以台北時間（UTC+8）顯示 · 點人物或圓框看該組最近 10 筆、指令與會議 · 場景來自 <a href="https://github.com/dofliu/indoor-scenes" target="_blank" rel="noopener">DofLab 室內場景庫</a> · <a href="https://github.com/dofliu/agent-office" target="_blank" rel="noopener">原始碼</a></span>
+  </footer>
+</div>
+
+<div id="drawerHost"></div>
+
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module" src="js/office.js"></script>
+</body>
+</html>

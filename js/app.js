@@ -620,7 +620,7 @@
           el('div', { class: 'sect' }, el('h2', {}, '投票結果'), rank),
           ...tiers,
           el('div', { class: 'sect' }, el('h2', {}, '3D 辦公室'),
-            el('p', { class: 'hint' }, '會議室已升級為 B+ 會議／試播室（觸控大螢幕、1080p 試播投影、直立副螢幕、看板牆），北側新增 D 錄課棚（收音桌、直式拍攝位、ON AIR 燈）。A 辦公室升級等老闆核准後再加。')),
+            el('p', { class: 'hint' }, '會議室已升級為 B+ 會議／試播室（觸控大螢幕、1080p 試播投影、直立副螢幕、看板牆），北側新增 D 錄課棚（收音桌、直式拍攝位、ON AIR 燈）。A 辦公室升級已核准：每個座位雙螢幕＋電動升降桌（工作中的人會不時站起來），走廊兩端各一間隔音電話亭（視訊、電話類工作會去那裡）。')),
           el('div', { class: 'm-row' }, mt ? el('button', { class: 'btn sm', type: 'button', onclick: () => openMeetings(P.meetingId) }, '看會議紀錄（' + mt.msgs.length + ' 則發言）') : el('span', { class: 'hint' }, '會議紀錄：' + P.meetingId)))));
     if (!host.contains(document.activeElement)) closeBtn.focus();
   }

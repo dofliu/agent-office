@@ -7,7 +7,7 @@ body{margin:0}
   --t0:#0f7f97; --t1:#b8700c; --t2:#6c50c4; --t3:#bd423a; --t4:#357f48; --t5:#4a6898; --on-hue:#ffffff;
   --ok:#2c8547; --warn:#a96f12; --bad:#b23f37;
   --scrim:rgba(20,32,43,.38);
-  --office-bg:#d6e0e7; --s-work:#2c8547; --s-meet:#b8700c; --s-present:#6c50c4; --s-patrol:#0f7f97; --s-break:#4a6898; --s-idle:#8a96a3; --s-record:#c0392b;
+  --office-bg:#d6e0e7; --s-work:#2c8547; --s-meet:#b8700c; --s-present:#6c50c4; --s-patrol:#0f7f97; --s-break:#4a6898; --s-idle:#8a96a3; --s-record:#c0392b; --s-call:#a3407e;
   --f-display:"Bricolage Grotesque","Noto Sans TC",system-ui,sans-serif;
   --f-body:"Noto Sans TC",system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
@@ -15,11 +15,11 @@ body{margin:0}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0c151e; --bg2:#13212f; --surface:#15222f; --ink:#e3ecf3; --muted:#8ea1b2; --line:#253647; --accent:#5ec1d8;
   --t0:#3fc1d7; --t1:#efab48; --t2:#a68cf4; --t3:#ef7b70; --t4:#6dcd86; --t5:#88a7dc; --on-hue:#0a131b;
-  --ok:#6dcd86; --warn:#efb75a; --bad:#f08a80; --scrim:rgba(0,0,0,.55); --office-bg:#0f1a24; --s-work:#6dcd86; --s-meet:#efab48; --s-present:#a68cf4; --s-patrol:#3fc1d7; --s-break:#88a7dc; --s-idle:#6b7a88; --s-record:#f0857a; color-scheme:dark;}}
+  --ok:#6dcd86; --warn:#efb75a; --bad:#f08a80; --scrim:rgba(0,0,0,.55); --office-bg:#0f1a24; --s-work:#6dcd86; --s-meet:#efab48; --s-present:#a68cf4; --s-patrol:#3fc1d7; --s-break:#88a7dc; --s-idle:#6b7a88; --s-record:#f0857a; --s-call:#e48ac4; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --bg:#0c151e; --bg2:#13212f; --surface:#15222f; --ink:#e3ecf3; --muted:#8ea1b2; --line:#253647; --accent:#5ec1d8;
   --t0:#3fc1d7; --t1:#efab48; --t2:#a68cf4; --t3:#ef7b70; --t4:#6dcd86; --t5:#88a7dc; --on-hue:#0a131b;
-  --ok:#6dcd86; --warn:#efb75a; --bad:#f08a80; --scrim:rgba(0,0,0,.55); --office-bg:#0f1a24; --s-work:#6dcd86; --s-meet:#efab48; --s-present:#a68cf4; --s-patrol:#3fc1d7; --s-break:#88a7dc; --s-idle:#6b7a88; --s-record:#f0857a; color-scheme:dark;}
+  --ok:#6dcd86; --warn:#efb75a; --bad:#f08a80; --scrim:rgba(0,0,0,.55); --office-bg:#0f1a24; --s-work:#6dcd86; --s-meet:#efab48; --s-present:#a68cf4; --s-patrol:#3fc1d7; --s-break:#88a7dc; --s-idle:#6b7a88; --s-record:#f0857a; --s-call:#e48ac4; color-scheme:dark;}
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}

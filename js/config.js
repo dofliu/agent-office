@@ -7,8 +7,5 @@ window.AGENT_OFFICE_CONFIG = {
   sceneBase: 'https://raw.githubusercontent.com/dofliu/indoor-scenes/main/',
 
   // 各有一間辦公室的 TEAM（依序排在走廊南側）；其他 TEAM 坐「共用座位」。
-  officeTeams: ['DofLab', 'DofGM', 'NCUT_PJ'],
-
-  // 可寫入的管理台（claude.ai 上的看板）：發起會議、老師發言、下指令、改 TEAM／刪除紀錄。
-  adminUrl: 'https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk'
+  officeTeams: ['DofLab', 'DofGM', 'NCUT_PJ']
 };

@@ -1,8 +1,8 @@
-// 雲端紀錄看板：資料、圓框檢視、側欄（唯讀）
+// 雲端紀錄看板：資料、圓框檢視、側欄；登入管理模式後可寫入（經 Apps Script）
 (() => {
   // Settings live in config.js (window.AGENT_OFFICE_CONFIG).
   const CFG = window.AGENT_OFFICE_CONFIG || {};
-  const LS_CACHE = 'agentoffice.cache.v1', LS_INT = 'cloudlog.interval', LS_TEAM = 'cloudlog.team';
+  const LS_CACHE = 'agentoffice.cache.v1', LS_INT = 'cloudlog.interval', LS_TEAM = 'cloudlog.team', LS_KEY = 'agentoffice.adminKey';
   const HUES = ['--t0','--t1','--t2','--t3','--t4','--t5'];
 
   const $ = id => document.getElementById(id);
@@ -29,7 +29,9 @@
   let intervalMin = Number(lsGet(LS_INT)) || 5;
   let teamFilter = lsGet(LS_TEAM) || 'all';
   let view = lsGet('cloudlog.view') === 'bubbles' ? 'bubbles' : 'office';
-  let openMeet = null;
+  let manage = false, armedKey = null, armTimer = 0, opBusy = '', opMsg = null, fixTeam = '';
+  let adminKey = lsGet(LS_KEY) || '', isAdmin = !!adminKey, adminOpen = false, adminMsg = null, adminBusy = false;
+  let openMeet = null, meetForm = null, teacherMsg = {}, cmdDraft = {}, sendBusy = '', sendMsg = null;
   let syncing = false, lastAttempt = 0, openAccount = null, blocked = false;
   let status = { kind: 'idle', text: '準備中…' };
   const prevLatest = {};      // account -> latest ts at previous render
@@ -37,7 +39,6 @@
   let firstRenderDone = false;
 
   $('interval').value = String(intervalMin);
-  if (CFG.adminUrl) { const a = $('adminLink'); if (a) { a.href = CFG.adminUrl; a.hidden = false; } }
 
   // ---------- parsing ----------
   function parseTime14(s) {
@@ -204,9 +205,12 @@
     }
     if (openAccount && !drawerTyping()) renderDrawer(m);
     if (openMeet && !drawerTyping()) renderMeetDrawer(m);
+    if (adminOpen && !drawerTyping()) renderAdminDrawer();
+    const ab = $('adminBtn'); if (ab) { ab.textContent = isAdmin ? '管理模式' : '管理登入'; ab.classList.toggle('on', isAdmin); }
     const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length; mb.textContent = n ? `會議 ${n}` : '會議'; mb.classList.toggle('hot', n > 0); }
   }
-  const drawerTyping = () => { const ae = document.activeElement; return !!(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && $('drawerHost').contains(ae)); };
+  // only pause redraws while the viewer is typing or picking; ticking a checkbox must redraw (attendee count, host list)
+  const drawerTyping = () => { const ae = document.activeElement; return !!(ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && /^(text|search)$/.test(ae.type))) && $('drawerHost').contains(ae)); };
   function layoutOffice() {
     const o = $('office'); const phone = window.innerWidth < 620;
     if (document.body.classList.contains('focus')) { o.style.setProperty('--oh', (window.innerHeight - 8) + 'px'); return; }
@@ -215,6 +219,7 @@
     o.style.setProperty('--oh', h + 'px');
   }
   $('meetBtn').addEventListener('click', () => openMeetings('list'));
+  $('adminBtn').addEventListener('click', openAdmin);
   const setFocus = on => { document.body.classList.toggle('focus', on); $('oFull').setAttribute('aria-pressed', String(on)); $('oFull').textContent = on ? '結束全螢幕' : '全螢幕'; lsSet('cloudlog.focus', on ? '1' : '0'); render(); if (on) $('office').scrollIntoView({ block: 'start' }); };
   $('oFull').addEventListener('click', () => setFocus(!document.body.classList.contains('focus')));
   if (lsGet('cloudlog.focus') === '1') document.body.classList.add('focus');
@@ -270,23 +275,29 @@
     return box;
   }
 
-  // ---------- drawer (read-only: writes happen in the claude.ai console or through the agents' skill) ----------
+  // ---------- drawer ----------
   let lastFocus = null;
-  function openDrawer(key) { lastFocus = document.activeElement; openMeet = null; openAccount = key; freshSet.delete(key); render(); }
-  function openMeetings(id) { lastFocus = document.activeElement; openAccount = null; openMeet = id || 'list'; render(); }
+  function openDrawer(key) { lastFocus = document.activeElement; adminOpen = false; openMeet = null; sendMsg = null; openAccount = key; freshSet.delete(key); render(); }
+  function openAdmin() { lastFocus = document.activeElement; openAccount = null; openMeet = null; adminOpen = true; adminMsg = null; render(); }
+  function openMeetings(id) { lastFocus = document.activeElement; adminOpen = false; openAccount = null; openMeet = id || 'list'; sendMsg = null; render(); }
   function closeDrawer() {
-    openAccount = null; openMeet = null; $('drawerHost').replaceChildren();
+    adminOpen = false; openAccount = null; openMeet = null; meetForm = null; sendMsg = null; manage = false; armedKey = null; opMsg = null; fixTeam = ''; $('drawerHost').replaceChildren();
     if (lastFocus && lastFocus.isConnected) lastFocus.focus();
   }
-  const ST_ZH = { new: '待接收', received: '已收到', in_progress: '進行中', done: '完成', declined: '不做', blocked: '卡住' };
-  const KIND_ZH = { opinion: '意見', question: '提問', answer: '回答', proposal: '提案', agree: '同意', disagree: '反對', info: '補充', instruction: '指示', action: '待辦' };
-  const partyName = p => p ? (p.name || String(p.account || '').split('@')[0] || '—') : '—';
-  const adminHint = what => el('p', { class: 'hint' }, `${what}請到`, CFG.adminUrl ? el('a', { href: CFG.adminUrl, target: '_blank', rel: 'noopener' }, ' claude.ai 管理台 ') : ' claude.ai 管理台 ', '操作，或在任一代理人的對話裡用「雲端會議」技能。');
-
+  // two-step confirm: first click arms the button for 5 s, second click runs it
+  function armed(key, label, armedLabel, fn, cls = 'btn sm danger') {
+    const on = armedKey === key;
+    return el('button', { class: cls + (on ? ' armed' : ''), type: 'button', disabled: opBusy ? '' : null,
+      onclick: () => {
+        if (opBusy) return;
+        if (!on) { armedKey = key; clearTimeout(armTimer); armTimer = setTimeout(() => { armedKey = null; render(); }, 5000); render(); return; }
+        armedKey = null; clearTimeout(armTimer); fn();
+      } }, on ? armedLabel : label);
+  }
   function renderDrawer(m) {
     const a = m.accounts.find(x => x.key === openAccount);
     const host = $('drawerHost');
-    if (!a) { closeDrawer(); return; }
+    if (!a) { const msg = opMsg; closeDrawer(); if (msg && !msg.bad) showNotice(msg.text); return; }
     const hue = a.team ? a.team.hue : 'var(--t5)';
     const items = a.list.slice(0, 10).map(r => {
       const t = m.teamInfo[teamKey(r.team)];
@@ -294,13 +305,37 @@
         el('div', { class: 'when' }, fmtFull.format(r.ts), el('span', {}, '· ' + rel(r.ts)),
           t && teamKey(r.team) !== teamKey(a.latest.team) ? el('span', { class: 'team', style: `--hue:${t.hue}` }, t.label) : null),
         el('div', { class: 'r-topic' }, r.topic),
-        r.content ? el('p', { class: 'r-content' }, r.content) : el('p', { class: 'r-content none' }, '這筆紀錄沒有填寫內容'));
+        r.content ? el('p', { class: 'r-content' }, r.content) : el('p', { class: 'r-content none' }, '這筆紀錄沒有填寫內容'),
+        el('div', { class: 'r-actions' },
+          isAdmin && r.viewUrl ? el('a', { class: 'r-link', href: r.viewUrl, target: '_blank', rel: 'noopener' }, '開啟原始 JSON ↗') : null,
+          manage && isAdmin ? armed('rec:' + r.fileId, '移到垃圾桶', '再按一次確認', () => trashFiles([r.fileId], a.key)) : null)
+      );
     });
-    const cmds = a.cmds.slice(0, 5).map(c => el('li', {},
-      el('div', { class: 'c-row' }, el('span', { class: 'st st-' + c.status }, ST_ZH[c.status] || c.status), el('b', {}, c.cmd.title || '(無標題)'), el('span', { class: 'muted' }, rel(c.cmd.ts))),
-      c.note ? el('p', { class: 'c-note' }, c.note) : null));
+    let panel = null;
+    if (manage && isAdmin) {
+      const ids = a.list.map(r => r.fileId);
+      const others = m.teams.filter(t => t.key !== a.teamKey).map(t => t.label);
+      const inp = el('input', { id: 'fixTeam', type: 'text', list: 'teamList', placeholder: '例如 ' + (others[0] || 'NCUT_PJ'), value: fixTeam, autocomplete: 'off' });
+      inp.addEventListener('input', () => { fixTeam = inp.value; });
+      panel = el('div', { class: 'manage' },
+        el('p', {}, `這組共有 ${ids.length} 筆紀錄。改 TEAM 會用正確的 TEAM 重新存一份，再把原檔移到 Google Drive 垃圾桶；移到垃圾桶的檔案 30 天內可在 Drive 還原。`),
+        el('datalist', { id: 'teamList' }, ...others.map(l => el('option', { value: l }))),
+        el('div', { class: 'm-row' },
+          el('label', { for: 'fixTeam' }, '改到 TEAM'), inp,
+          armed('fix', `改正 ${ids.length} 筆`, '再按一次確認', () => {
+            const t = (fixTeam || '').trim();
+            if (!t) { opMsg = { bad: true, text: '請先填寫正確的 TEAM 名稱。' }; render(); return; }
+            retagFiles(ids, t, a.key);
+          }, 'btn sm')),
+        el('div', { class: 'm-row' },
+          armed('all', `整組 ${ids.length} 筆移到垃圾桶`, `確定移除 ${ids.length} 筆？再按一次`, () => trashFiles(ids, a.key))),
+        opBusy ? el('p', { class: 'm-status', 'aria-live': 'polite' }, opBusy) : null,
+        !opBusy && opMsg ? el('p', { class: 'm-status ' + (opMsg.bad ? 'bad' : 'ok'), 'aria-live': 'polite' }, opMsg.text) : null);
+    }
     const scroll = host.querySelector('.d-body')?.scrollTop || 0;
     const closeBtn = el('button', { class: 'close', type: 'button', 'aria-label': '關閉', onclick: closeDrawer }, '×');
+    const manageBtn = !isAdmin ? null : el('button', { class: 'btn sm', type: 'button', 'aria-pressed': String(manage),
+      onclick: () => { manage = !manage; armedKey = null; opMsg = null; render(); } }, manage ? '完成' : '管理');
     host.replaceChildren(
       el('div', { class: 'scrim', onclick: closeDrawer }),
       el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dTitle', style: `--hue:${hue}` },
@@ -309,12 +344,10 @@
           el('div', { class: 'd-title' },
             el('span', { class: 'email', id: 'dTitle' }, a.account),
             el('span', { class: 'sub' }, el('span', { class: 'team' }, a.team ? a.team.label : '未標示'), `共 ${a.total} 筆 · 近 7 天 ${a.week} 筆`)),
-          el('div', { class: 'd-tools' }, closeBtn)),
+          el('div', { class: 'd-tools' }, manageBtn, closeBtn)),
         el('div', { class: 'd-body' },
-          el('div', { class: 'sect cmdbox' },
-            el('h2', {}, '指令', a.pending ? el('span', { class: 'badge' }, `待處理 ${a.pending}`) : null),
-            cmds.length ? el('ul', { class: 'clist' }, ...cmds) : el('p', { class: 'hint' }, '目前沒有交給它的指令。'),
-            adminHint('要下新指令，')),
+          panel,
+          commandBox(a),
           a.meetings.length ? el('div', { class: 'sect' }, el('h2', {}, '受邀的會議'),
             el('div', { class: 'chiplist' }, ...a.meetings.slice(0, 6).map(x => el('button', { class: 'mchip' + (x.open ? ' open' : ''), type: 'button', onclick: () => openMeetings(x.id) },
               (x.open ? '● ' : '') + x.title)))) : null,
@@ -325,29 +358,83 @@
     if (!host.contains(document.activeElement)) closeBtn.focus();
   }
 
+  // ---------- commands, meetings (board writes new JSON files only) ----------
+  const ST_ZH = { new: '待接收', received: '已收到', in_progress: '進行中', done: '完成', declined: '不做', blocked: '卡住' };
+  const KIND_ZH = { opinion: '意見', question: '提問', answer: '回答', proposal: '提案', agree: '同意', disagree: '反對', info: '補充', instruction: '指示', action: '待辦' };
+  const partyName = p => p ? (p.name || String(p.account || '').split('@')[0] || '—') : '—';
+  // All writes: POST to the Apps Script web app with the admin password. The script builds and names the files.
+  async function api(action, payload) {
+    const r = await fetch(CFG.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, key: adminKey, ...payload }) });
+    if (!r.ok) throw { code: 'http', message: 'HTTP ' + r.status };
+    const d = await r.json();
+    if (!d.ok) throw { code: d.error || 'error', message: d.message || d.error };
+    return d;
+  }
+  const ERR_ZH = { wrong_key: '管理密碼不正確，請重新登入。', admin_disabled: 'Apps Script 尚未設定管理密碼（指令碼屬性 ADMIN_KEY）。', bad_request: '送出的內容不完整。', not_allowed: '只能處理三個雲端資料夾裡的檔案。' };
+  function apiMsg(e) {
+    if (e && e.code === 'wrong_key') { isAdmin = false; adminKey = ''; lsDel(LS_KEY); }
+    return ERR_ZH[e && e.code] || ('寫入失敗：' + ((e && e.message) || e) + '。可能其實已完成，請按「立即更新」確認後再重做。');
+  }
+  const putFile = (store, f) => { if (f && f.id) store[f.id] = { id: f.id, title: f.title, modifiedTime: f.modified, viewUrl: 'https://drive.google.com/file/d/' + f.id + '/view', rec: f.data }; };
+  function sendError(e) { return { bad: true, text: apiMsg(e) }; }
+  const loginHint = what => el('p', { class: 'hint' }, `${what}請先按右上角「管理登入」。`);
+  function commandBox(a) {
+    const d = cmdDraft[a.key] || (cmdDraft[a.key] = { title: '', text: '', high: false });
+    const ti = el('input', { id: 'cmdTitle', type: 'text', placeholder: '標題（例如：整理本週進度）', value: d.title, maxlength: '40' });
+    ti.addEventListener('input', () => { d.title = ti.value; });
+    const tx = el('textarea', { id: 'cmdText', rows: '3', placeholder: '要它做什麼、做到什麼程度、成果放哪裡' }); tx.value = d.text;
+    tx.addEventListener('input', () => { d.text = tx.value; });
+    const hi = el('input', { id: 'cmdHigh', type: 'checkbox' }); hi.checked = d.high; hi.addEventListener('change', () => { d.high = hi.checked; });
+    const list = a.cmds.slice(0, 5).map(c => el('li', {},
+      el('div', { class: 'c-row' }, el('span', { class: 'st st-' + c.status }, ST_ZH[c.status] || c.status), el('b', {}, c.cmd.title || '(無標題)'), el('span', { class: 'muted' }, rel(c.cmd.ts))),
+      c.note ? el('p', { class: 'c-note' }, c.note) : null));
+    if (!isAdmin) return el('div', { class: 'sect cmdbox' },
+      el('h2', {}, '指令', a.pending ? el('span', { class: 'badge' }, `待處理 ${a.pending}`) : null),
+      list.length ? el('ul', { class: 'clist' }, ...list) : el('p', { class: 'hint' }, '目前沒有交給它的指令。'),
+      loginHint('要下指令，'));
+    return el('div', { class: 'sect cmdbox' },
+      el('h2', {}, '下指令', a.pending ? el('span', { class: 'badge' }, `待處理 ${a.pending}`) : null),
+      el('p', { class: 'hint' }, '指令會存到雲端「指令」資料夾；這個代理人的排程下次執行「雲端會議」時才會看到並回報。'),
+      ti, tx,
+      el('div', { class: 'm-row' }, el('label', { class: 'ck', for: 'cmdHigh' }, hi, '急件'),
+        el('button', { class: 'btn sm primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => sendCommand(a) }, sendBusy || '送出指令')),
+      sendMsg && sendMsg.where === a.key ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null,
+      list.length ? el('ul', { class: 'clist' }, ...list) : null);
+  }
+  async function sendCommand(a) {
+    const d = cmdDraft[a.key]; if (!isAdmin || sendBusy) return;
+    if (!d.text.trim()) { sendMsg = { where: a.key, bad: true, text: '請先寫指令內容。' }; render(); return; }
+    sendBusy = '送出中…'; sendMsg = null; render();
+    try { const r = await api('createCommand', { to: { account: a.account, team: a.team ? a.team.label : null }, title: d.title.trim() || d.text.trim().slice(0, 20), instruction: d.text.trim(), priority: d.high ? 'high' : 'normal' });
+      putFile(state.cfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); cmdDraft[a.key] = { title: '', text: '', high: false }; sendMsg = { where: a.key, text: '已送出，等它的排程來領取。' }; }
+    catch (e) { sendMsg = { where: a.key, ...sendError(e) }; }
+    sendBusy = ''; render();
+  }
+
   function renderMeetDrawer(m) {
     const host = $('drawerHost'), scroll = host.querySelector('.d-body')?.scrollTop || 0;
     const closeBtn = el('button', { class: 'close', type: 'button', 'aria-label': '關閉', onclick: closeDrawer }, '×');
     const x = openMeet !== 'list' ? m.meetings.find(q => q.id === openMeet) : null;
     let body;
-    if (x) body = meetDetail(x, m);
+    if (meetForm && isAdmin) body = meetFormView(m);
+    else if (x) body = meetDetail(x, m);
     else {
-      const items = m.meetings.slice(0, 30).map(q => el('li', {}, el('button', { class: 'mrow', type: 'button', onclick: () => { openMeet = q.id; render(); } },
+      const items = m.meetings.slice(0, 20).map(q => el('li', {}, el('button', { class: 'mrow', type: 'button', onclick: () => { openMeet = q.id; render(); } },
         el('span', { class: 'st ' + (q.open ? (q.overdue ? 'st-blocked' : 'st-in_progress') : 'st-done') }, q.open ? (q.overdue ? '已過截止' : '進行中') : '已結束'),
         el('b', {}, q.title), el('span', { class: 'muted' }, `${q.msgs.length} 則 · ${rel(q.lastTs)}`))));
       body = el('div', {},
-        el('p', { class: 'hint' }, '受邀的代理人在自己的排程執行「雲端會議」時讀取議程並發言；主持人收尾時寫下結論並把待辦變成指令。'),
-        adminHint('要發起會議或以老師身分發言，'),
-        items.length ? el('ul', { class: 'mlist' }, ...items) : el('p', { class: 'hint' }, '還沒有會議。'));
+        el('p', { class: 'hint' }, '會議存在雲端「會議室」資料夾。受邀的代理人在自己的排程執行「雲端會議」時讀取並發言；主持人收尾時寫下結論並把待辦變成指令。'),
+        isAdmin ? null : loginHint('要發起會議或以老師身分發言，'),
+        items.length ? el('ul', { class: 'mlist' }, ...items) : el('p', { class: 'hint' }, isAdmin ? '還沒有會議。按「發起會議」開第一場。' : '還沒有會議。'));
     }
     host.replaceChildren(
       el('div', { class: 'scrim', onclick: closeDrawer }),
       el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mTitle' },
         el('div', { class: 'd-head' },
-          x ? el('button', { class: 'btn sm', type: 'button', onclick: () => { openMeet = 'list'; render(); } }, '‹ 全部') : null,
-          el('div', { class: 'd-title' }, el('span', { class: 'r-topic', id: 'mTitle' }, x ? x.title : '會議室'),
-            el('span', { class: 'sub' }, x ? `${x.open ? '進行中' : '已結束'} · ${x.msgs.length} 則發言` : `${m.meetings.filter(q => q.open).length} 場進行中`)),
-          el('div', { class: 'd-tools' }, closeBtn)),
+          x || meetForm ? el('button', { class: 'btn sm', type: 'button', onclick: () => { openMeet = 'list'; meetForm = null; sendMsg = null; render(); } }, '‹ 全部') : null,
+          el('div', { class: 'd-title' }, el('span', { class: 'r-topic', id: 'mTitle' }, meetForm ? '發起會議' : x ? x.title : '會議室'),
+            el('span', { class: 'sub' }, meetForm ? '存成雲端議程檔' : x ? `${x.open ? '進行中' : '已結束'} · ${x.msgs.length} 則發言` : `${m.meetings.filter(q => q.open).length} 場進行中`)),
+          el('div', { class: 'd-tools' }, isAdmin && !x && !meetForm ? el('button', { class: 'btn sm primary', type: 'button', onclick: () => { meetForm = { title: '', goal: '', agenda: '', who: new Set(), host: '', hours: 24 }; sendMsg = null; render(); } }, '發起會議') : null, closeBtn)),
         el('div', { class: 'd-body' }, body)));
     host.querySelector('.d-body').scrollTop = scroll;
     if (!host.contains(document.activeElement)) closeBtn.focus();
@@ -372,6 +459,12 @@
       (x.minutes.actions || []).length ? el('ul', { class: 'clist' }, ...(x.minutes.actions || []).map(ac => {
         const c = m.commands.find(cc => cc.id === ac.command_id);
         return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st st-' + (c ? c.status : 'new') }, ST_ZH[c ? c.status : 'new']), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || ''))); })) : null) : null;
+    const draft = teacherMsg[x.id] || (teacherMsg[x.id] = { text: '', kind: 'opinion', at: new Set() });
+    const tx = el('textarea', { id: 'tmsg', rows: '3', placeholder: '以劉老師身分發言，例如補充方向或指名某位代理人回答' }); tx.value = draft.text;
+    tx.addEventListener('input', () => { draft.text = tx.value; });
+    const kind = el('select', { id: 'tkind' }, ...[['opinion', '意見'], ['question', '提問'], ['instruction', '指示']].map(([v, l]) => { const o = el('option', { value: v }, l); if (v === draft.kind) o.selected = true; return o; }));
+    kind.addEventListener('change', () => { draft.kind = kind.value; });
+    const mention = att.map((p, i) => { const id = 'tat' + i; const cb = el('input', { id, type: 'checkbox' }); cb.checked = draft.at.has(i); cb.addEventListener('change', () => { cb.checked ? draft.at.add(i) : draft.at.delete(i); }); return el('label', { class: 'ck', for: id }, cb, '@' + partyName(p) + (p.team ? '·' + p.team : '')); });
     return el('div', {},
       ag.goal ? el('p', { class: 'r-content' }, ag.goal) : null,
       (ag.agenda || []).length ? el('ol', { class: 'agenda' }, ...(ag.agenda || []).map(t => el('li', {}, t))) : null,
@@ -379,8 +472,114 @@
       el('div', { class: 'chiplist' }, ...att.map(p => el('span', { class: 'mchip' + (spoke(p) ? ' open' : '') }, (spoke(p) ? '✓ ' : '') + partyName(p) + (p.team ? '·' + p.team : '')))),
       mins,
       el('h2', {}, `討論（${x.msgs.length}）`),
-      msgs.length ? el('ol', { class: 'thread' }, ...msgs) : el('p', { class: 'hint' }, '還沒有人發言。受邀的代理人下次排程執行時會讀議程並發言。'));
+      msgs.length ? el('ol', { class: 'thread' }, ...msgs) : el('p', { class: 'hint' }, '還沒有人發言。受邀的代理人下次排程執行時會讀議程並發言。'),
+      x.open && isAdmin ? el('div', { class: 'sect cmdbox' }, el('h2', {}, '老師發言'), tx,
+        att.length ? el('div', { class: 'chiplist' }, ...mention) : null,
+        el('div', { class: 'm-row' }, kind, el('button', { class: 'btn sm primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => sendTeacher(x) }, sendBusy || '送出發言')),
+        sendMsg && sendMsg.where === x.id ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null) : null);
   }
+  async function sendTeacher(x) {
+    const d = teacherMsg[x.id]; if (!isAdmin || sendBusy) return;
+    if (!d.text.trim()) { sendMsg = { where: x.id, bad: true, text: '請先寫發言內容。' }; render(); return; }
+    const att = (x.agenda && x.agenda.attendees) || [];
+    sendBusy = '送出中…'; sendMsg = null; render();
+    try { const r = await api('postMessage', { meeting_id: x.id, kind: d.kind, content: d.text.trim(), mentions: [...d.at].map(i => att[i]).filter(Boolean) });
+      putFile(state.mfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); teacherMsg[x.id] = { text: '', kind: 'opinion', at: new Set() }; sendMsg = { where: x.id, text: '已送出。' }; }
+    catch (e) { sendMsg = { where: x.id, ...sendError(e) }; }
+    sendBusy = ''; render();
+  }
+  function meetFormView(m) {
+    const f = meetForm;
+    const inp = (id, ph, key, max) => { const i = el('input', { id, type: 'text', placeholder: ph, value: f[key], maxlength: max || null }); i.addEventListener('input', () => { f[key] = i.value; }); return i; };
+    const area = (id, ph, key, rows) => { const t = el('textarea', { id, rows: String(rows), placeholder: ph }); t.value = f[key]; t.addEventListener('input', () => { f[key] = t.value; }); return t; };
+    const who = m.accounts.map((a, i) => { const id = 'mw' + i; const cb = el('input', { id, type: 'checkbox' }); cb.checked = f.who.has(a.key);
+      cb.addEventListener('change', () => { cb.checked ? f.who.add(a.key) : f.who.delete(a.key); if (!f.who.has(f.host)) f.host = [...f.who][0] || ''; render(); });
+      return el('label', { class: 'ck', for: id }, cb, a.account.split('@')[0], el('span', { class: 'team', style: `--hue:${a.team ? a.team.hue : 'var(--t5)'}` }, a.team ? a.team.label : '—')); });
+    const hostSel = el('select', { id: 'mhost' }, ...[...f.who].map(k => { const a = m.accounts.find(q => q.key === k); const o = el('option', { value: k }, a ? `${a.account.split('@')[0]} · ${a.team ? a.team.label : ''}` : k); if (k === f.host) o.selected = true; return o; }));
+    hostSel.addEventListener('change', () => { f.host = hostSel.value; });
+    const hrs = el('select', { id: 'mhrs' }, ...[2, 6, 12, 24, 48, 72].map(h => { const o = el('option', { value: String(h) }, h + ' 小時內'); if (h === f.hours) o.selected = true; return o; }));
+    hrs.addEventListener('change', () => { f.hours = Number(hrs.value); });
+    return el('div', { class: 'form' },
+      el('label', { for: 'mt' }, '主題'), inp('mt', '例如：離岸風電課程教材分工', 'title', 40),
+      el('label', { for: 'mg' }, '這場會要得到什麼'), area('mg', '例如：決定下週三份教材由誰負責、交付格式', 'goal', 2),
+      el('label', { for: 'ma' }, '議程（一行一項）'), area('ma', '各自回報手上進度\n討論分工\n確認時程', 'agenda', 3),
+      el('div', { class: 'm-row' }, el('span', { class: 'lab' }, `與會者（${f.who.size}）`),
+        el('button', { class: 'btn sm', type: 'button', onclick: () => { m.accounts.forEach(q => f.who.add(q.key)); if (!f.who.has(f.host)) f.host = [...f.who][0] || ''; render(); } }, '全選'),
+        el('button', { class: 'btn sm', type: 'button', onclick: () => { f.who.clear(); f.host = ''; render(); } }, '清除')),
+      el('div', { class: 'chiplist' }, ...who),
+      el('label', { for: 'mhost' }, '主持人（負責收尾、寫結論）'), hostSel,
+      el('label', { for: 'mhrs' }, '截止'), hrs,
+      el('div', { class: 'm-row' }, el('button', { class: 'btn primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => createMeeting(m) }, sendBusy || '建立會議')),
+      sendMsg && sendMsg.where === 'form' ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null);
+  }
+  async function createMeeting(m) {
+    const f = meetForm; if (!isAdmin || sendBusy) return;
+    const fail = t => { sendMsg = { where: 'form', bad: true, text: t }; render(); };
+    if (!f.title.trim()) return fail('請填寫主題。');
+    if (!f.who.size) return fail('請至少勾選一位與會者。');
+    const party = k => { const a = m.accounts.find(q => q.key === k); return a ? { account: a.account, team: a.team ? a.team.label : null } : null; };
+    sendBusy = '建立中…'; sendMsg = null; render();
+    try { const r = await api('createMeeting', { title: f.title.trim(), goal: f.goal.trim(), agenda: f.agenda.split('\n').map(x => x.trim()).filter(Boolean),
+        host: party(f.host || [...f.who][0]), attendees: [...f.who].map(party).filter(Boolean), hours: f.hours });
+      putFile(state.mfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); const id = r.file.data.meeting_id; meetForm = null; openMeet = id; sendMsg = { where: id, text: '會議已建立。受邀代理人的排程下次執行時會開始發言。' }; }
+    catch (e) { sendMsg = { where: 'form', ...sendError(e) }; }
+    sendBusy = ''; render();
+  }
+
+  // ---------- management: writes run once per click, never retried ----------
+  async function trashFiles(ids, groupKey) {
+    if (!isAdmin || opBusy) return;
+    opMsg = null; opBusy = `移到垃圾桶中…（${ids.length} 筆）`; render();
+    try {
+      const r = await api('trash', { ids });
+      for (const id of r.trashed || []) { delete state.files[id]; delete state.mfiles[id]; delete state.cfiles[id]; }
+      opMsg = { text: `已把 ${(r.trashed || []).length} 筆移到 Google Drive 垃圾桶（30 天內可還原）。` };
+    } catch (e) { opMsg = { bad: true, text: apiMsg(e) }; }
+    opBusy = ''; lsSet(LS_CACHE, JSON.stringify(state)); render();
+  }
+  async function retagFiles(ids, newTeam, groupKey) {
+    if (!isAdmin || opBusy) return;
+    opMsg = null; opBusy = `改正中…（${ids.length} 筆）`; render();
+    try {
+      const r = await api('retag', { ids, team: newTeam });
+      for (const id of r.trashed || []) delete state.files[id];
+      for (const f of r.created || []) state.files[f.id] = { id: f.id, title: f.title, modifiedTime: f.modified, viewUrl: 'https://drive.google.com/file/d/' + f.id + '/view', rec: normalizeRec(f.data, { title: f.title, modifiedTime: f.modified }) };
+      opMsg = { text: `已把 ${(r.created || []).length} 筆改到 TEAM「${newTeam}」，原檔已移到垃圾桶。` };
+      fixTeam = '';
+    } catch (e) { opMsg = { bad: true, text: apiMsg(e) }; }
+    opBusy = ''; lsSet(LS_CACHE, JSON.stringify(state)); render();
+  }
+
+  // ---------- admin sign-in (password is checked by the Apps Script; kept only in this browser) ----------
+  function renderAdminDrawer() {
+    const host = $('drawerHost');
+    const closeBtn = el('button', { class: 'close', type: 'button', 'aria-label': '關閉', onclick: closeDrawer }, '×');
+    let body;
+    if (isAdmin) body = el('div', { class: 'form' },
+      el('p', { class: 'hint' }, '這個瀏覽器已進入管理模式：可以發起會議、以老師身分發言、下指令，以及在人物側欄按「管理」改 TEAM 或移除紀錄。'),
+      el('div', { class: 'm-row' }, el('button', { class: 'btn', type: 'button', onclick: () => { isAdmin = false; adminKey = ''; lsDel(LS_KEY); adminMsg = null; render(); } }, '登出管理模式')));
+    else {
+      const inp = el('input', { id: 'adminPass', type: 'password', autocomplete: 'current-password', placeholder: 'Apps Script 指令碼屬性 ADMIN_KEY 的值' });
+      const go = async () => {
+        if (!inp.value || adminBusy) return; adminBusy = true; adminMsg = null; const prev = adminKey; adminKey = inp.value;
+        try { await api('ping', {}); isAdmin = true; lsSet(LS_KEY, adminKey); adminMsg = { text: '已進入管理模式。' }; }
+        catch (e) { adminKey = prev; adminMsg = { bad: true, text: apiMsg(e) }; }
+        adminBusy = false; render();
+      };
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+      body = el('form', { class: 'form', onsubmit: e => { e.preventDefault(); go(); } },
+        el('p', { class: 'hint' }, '輸入管理密碼後，這個瀏覽器可以寫入雲端資料夾。密碼只存在這台裝置的瀏覽器裡。'),
+        el('label', { for: 'adminPass' }, '管理密碼'), inp,
+        el('div', { class: 'm-row' }, el('button', { class: 'btn primary', type: 'submit', disabled: adminBusy ? '' : null }, adminBusy ? '確認中…' : '登入')));
+    }
+    host.replaceChildren(
+      el('div', { class: 'scrim', onclick: closeDrawer }),
+      el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'aTitle' },
+        el('div', { class: 'd-head' }, el('div', { class: 'd-title' }, el('span', { class: 'r-topic', id: 'aTitle' }, '管理模式'), el('span', { class: 'sub' }, isAdmin ? '已登入' : '未登入')), el('div', { class: 'd-tools' }, closeBtn)),
+        el('div', { class: 'd-body' }, body, adminMsg ? el('p', { class: 'm-status ' + (adminMsg.bad ? 'bad' : 'ok') }, adminMsg.text) : null)));
+    const f = host.querySelector('#adminPass'); if (f && !host.contains(document.activeElement)) f.focus();
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && (openAccount || openMeet || adminOpen)) closeDrawer(); });
 
   // ---------- status / notices ----------
   function setStatus(kind, text) {

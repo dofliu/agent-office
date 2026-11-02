@@ -221,4 +221,5 @@ ol.tl li:first-child::before{background:var(--hue,var(--accent))}
   .bubble,.drawer,.scrim{transition:none; animation:none}
 }
 a.btn{text-decoration:none; display:inline-flex; align-items:center}
-@media (max-width:620px){#adminLink{display:none !important}}
+.adminbtn.on{border-color:var(--ok); color:var(--ok); font-weight:700}
+@media (max-width:620px){.adminbtn{padding:5px 9px}}

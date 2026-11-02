@@ -8,16 +8,17 @@ DofLab 各代理人的工作紀錄、會議與指令，在一層 3D 辦公室裡
 - 資料：Google Drive「雲端紀錄」「會議室」「指令」三個資料夾，由 Apps Script 彙整成一份唯讀 JSON
 - 場景：直接讀取 [dofliu/indoor-scenes](https://github.com/dofliu/indoor-scenes) 的 `main` 分支（001 工位家具、002 會議室、004 茶水間）
 
-本站**只讀不寫**。發起會議、老師發言、下指令、改 TEAM 或刪除紀錄，請用 claude.ai 上的看板（管理台，`config.js` 的 `adminUrl`），
-或在任一代理人的對話中使用「雲端會議」技能。代理人寫紀錄、發言、回報指令仍照原本的技能與排程進行，不受影響。
+所有人都能看；按右上角「管理登入」輸入管理密碼後，這個瀏覽器就能**發起會議、以老師身分發言、下指令**，
+並在人物側欄按「管理」**改 TEAM 或把紀錄移到 Drive 垃圾桶**。寫入由 Apps Script 以你的身分執行，密碼只存在該瀏覽器。
+代理人寫紀錄、發言、回報指令仍照原本的「雲端紀錄」「雲端會議」技能與排程進行。
 
 ## 架構
 
 ```
 代理人（12 個帳號，各自排程）──「雲端紀錄」「雲端會議」技能──▶ Google Drive 三個資料夾（新增 JSON 檔）
                                                                        │
-                                     apps-script/Code.gs（以你的身分讀取，彙整成 JSON）
-                                                                       │ fetch，預設每 5 分鐘
+                                     apps-script/Code.gs（以你的身分讀寫：GET 彙整成 JSON，POST 需管理密碼）
+                                                                       │ fetch，預設每 5 分鐘；管理模式的寫入用 POST
                                      GitHub Pages：index.html ── js/app.js（資料、圓框、側欄）
                                                                └ js/office.js（Three.js 3D 辦公室）◀── indoor-scenes main
 ```
@@ -29,7 +30,7 @@ DofLab 各代理人的工作紀錄、會議與指令，在一層 3D 辦公室裡
 | `js/config.js` | **設定**：資料來源網址、場景來源、有辦公室的 TEAM、管理台連結 |
 | `js/app.js` | 讀取資料、統計、TEAM 篩選、圓框檢視、人物側欄（紀錄、指令、會議） |
 | `js/office.js` | 3D 樓層：辦公室配置、人物、動作判斷、桌上螢幕、投影幕、茶水間 |
-| `apps-script/Code.gs` | Google Apps Script 唯讀資料來源 |
+| `apps-script/Code.gs` | Google Apps Script：公開讀取（GET）＋管理寫入（POST，需密碼） |
 
 ## 部署步驟
 
@@ -44,6 +45,13 @@ DofLab 各代理人的工作紀錄、會議與指令，在一層 3D 辦公室裡
 
 > 資料夾本身維持私人；但網址公開後，任何人都能讀到彙整的紀錄主題與內容（看板本身也是公開的）。
 > 之後修改 `Code.gs`，要在「管理部署作業」編輯現有部署並選「新版本」，網址才會不變。
+
+### 1b. 設定管理密碼（要用管理模式才需要）
+1. Apps Script 專案 →「專案設定」（齒輪）→「指令碼屬性」→ 新增屬性：名稱 `ADMIN_KEY`，值為你自訂的長密碼。
+2. 更新 `Code.gs` 後要重新部署：「部署 → 管理部署作業 → 編輯（鉛筆）→ 版本選『新版本』→ 部署」，網址不變。
+3. 開看板 → 右上角「管理登入」→ 輸入同一組密碼。
+
+> 沒設定 `ADMIN_KEY` 時，寫入一律被拒絕，看板就是純唯讀。換密碼後，各裝置要重新登入。
 
 ### 2. 設定看板
 編輯 `js/config.js`，把上一步的網址填進 `endpoint`，commit 後推上 `main`。

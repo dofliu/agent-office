@@ -152,7 +152,7 @@ body.focus .office{border-radius:10px}
 .sect h2,.d-body .sect h2{margin:0; display:flex; align-items:center; gap:8px}
 .badge{font-size:11px; letter-spacing:0; text-transform:none; padding:1px 8px; border-radius:999px; background:var(--s-meet); color:var(--surface)}
 .hint{margin:0; font-size:12.5px; color:var(--muted)}
-.d-body input[type=text],.d-body textarea,.d-body select{font:inherit; font-size:13.5px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); width:100%; min-width:0}
+.d-body input[type=text],.d-body input[type=password],.d-body textarea,.d-body select{font:inherit; font-size:13.5px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); width:100%; min-width:0}
 .d-body textarea{resize:vertical}
 .d-body .m-row select{width:auto}
 .ck{display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink); cursor:pointer; white-space:nowrap}
@@ -205,6 +205,10 @@ ol.tl li:first-child::before{background:var(--hue,var(--accent))}
   header.top{flex-wrap:nowrap; align-items:center; gap:8px}
   .controls{flex-wrap:nowrap; gap:6px; margin-left:auto}
   .sync-state{font-size:10.5px; gap:5px}
+  .brand{flex:none; width:3.2em; font-size:20px}   /* 標題固定兩行（雲端紀／錄看板），按鈕再多也不會擠成直排 */
+  .brand h1{font-size:inherit}
+  .controls .btn{white-space:nowrap}
+  label.iv{display:none}   /* 自動更新間隔在手機上收起來，空出位置給按鈕 */
   select,.btn{font-size:12px; padding:5px 10px}
   .stats{gap:4px 14px; padding-top:8px}
   .stat b{font-size:18px}
@@ -225,7 +229,11 @@ ol.tl li:first-child::before{background:var(--hue,var(--accent))}
 }
 a.btn{text-decoration:none; display:inline-flex; align-items:center}
 .adminbtn.on{border-color:var(--ok); color:var(--ok); font-weight:700}
-@media (max-width:620px){.adminbtn{padding:5px 9px}}
+.readbtn{border-color:var(--warn); color:var(--warn)}
+.readbtn[hidden]{display:none}
+@media (max-width:620px){.adminbtn,.readbtn{padding:5px 9px}}
+.readbtn .short{display:none}
+@media (max-width:620px){.readbtn .long{display:none}.readbtn .short{display:inline}}
 
 /* ---------- 3D action menu (people / devices) ---------- */
 .o-menu{position:absolute; z-index:5; width:min(230px, calc(100% - 16px)); max-height:calc(100% - 16px); display:flex; flex-direction:column; background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:12px; box-shadow:0 8px 28px rgba(0,0,0,.18); font-size:13px; overflow:hidden}

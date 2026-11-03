@@ -3,7 +3,7 @@
   // Settings live in config.js (window.AGENT_OFFICE_CONFIG).
   const CFG = window.AGENT_OFFICE_CONFIG || {};
   const PLAN = window.AGENT_OFFICE_PLAN || null;
-  const LS_CACHE = 'agentoffice.cache.v1', LS_INT = 'cloudlog.interval', LS_TEAM = 'cloudlog.team', LS_KEY = 'agentoffice.adminKey';
+  const LS_CACHE = 'agentoffice.cache.v1', LS_INT = 'cloudlog.interval', LS_TEAM = 'cloudlog.team', LS_KEY = 'agentoffice.adminKey', LS_READ = 'agentoffice.readKey';
   const HUES = ['--t0','--t1','--t2','--t3','--t4','--t5'];
 
   const $ = id => document.getElementById(id);
@@ -32,6 +32,7 @@
   let view = lsGet('cloudlog.view') === 'bubbles' ? 'bubbles' : 'office';
   let manage = false, armedKey = null, armTimer = 0, opBusy = '', opMsg = null, fixTeam = '';
   let adminKey = lsGet(LS_KEY) || '', isAdmin = !!adminKey, adminOpen = false, adminMsg = null, adminBusy = false;
+  let readKey = lsGet(LS_READ) || '', readMsg = null, readBusy = false;   // 讀取密碼：Apps Script 設了 READ_KEY 時，沒密碼只拿到公開精簡版
   let planOpen = false;
   let openMeet = null, meetForm = null, teacherMsg = {}, cmdDraft = {}, sendBusy = '', sendMsg = null;
   let syncing = false, lastAttempt = 0, openAccount = null, blocked = false;
@@ -77,8 +78,12 @@
   // nicknames + 3D looks from config.agents (email + TEAM); "Personal Pro" and "TEAM Pro" both match "Pro"
   const nickTeam = t => String(t || '').replace(/^(team|personal)\s+/i, '').trim().toLowerCase();
   const NICKS = new Map((CFG.agents || []).filter(x => x && x.account && x.nick).map(x => [String(x.account).trim().toLowerCase() + '|' + nickTeam(x.team), x]));
+  // 公開精簡版的 email 是雜湊碼（'#' + SHA-256 前 10 碼，見 Code.gs 的 hashAcc_）；把設定裡的 email 算一次對照
+  const HASHED = new Map();
+  const hashReady = (async () => { try { for (const x of CFG.agents || []) { if (!x || !x.account) continue; const e = String(x.account).trim().toLowerCase();
+    const b = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(e))); HASHED.set('#' + [...b.slice(0, 5)].map(v => v.toString(16).padStart(2, '0')).join(''), e); } } catch (e) {} })();
   function agentCfg(account, team) {
-    const a = String(account || '').trim().toLowerCase(), hit = NICKS.get(a + '|' + nickTeam(team));
+    const a0 = String(account || '').trim().toLowerCase(), a = HASHED.get(a0) || a0, hit = NICKS.get(a + '|' + nickTeam(team));
     if (hit || (team && team !== '*')) return hit || null;
     const all = [...NICKS].filter(([k]) => k.startsWith(a + '|'));   // no TEAM given: only if the email is unambiguous
     return all.length === 1 ? all[0][1] : null;
@@ -244,6 +249,7 @@
     if (openMeet && !drawerTyping()) renderMeetDrawer(m);
     if (adminOpen && !drawerTyping()) renderAdminDrawer(m);
     if (planOpen) renderPlanDrawer(m);
+    const rb = $('readBtn'); if (rb) rb.hidden = !state.public;
     const ab = $('adminBtn'); if (ab) { const n = isAdmin ? m.awaiting.length + m.pendingReqs.length : 0; ab.textContent = !isAdmin ? '管理登入' : n ? `待核准 ${n}` : '管理模式'; ab.classList.toggle('on', isAdmin); ab.classList.toggle('hot', n > 0); }
     const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length, rq = m.pendingReqs.length; mb.textContent = (n ? `會議 ${n}` : '會議') + (rq ? `・請求 ${rq}` : ''); mb.classList.toggle('hot', n + rq > 0); }
   }
@@ -260,6 +266,7 @@
   function openPlan() { lastFocus = document.activeElement; adminOpen = false; openAccount = null; openMeet = null; planOpen = true; render(); }
   if ($('planBtn')) { if (!PLAN) $('planBtn').hidden = true; else $('planBtn').addEventListener('click', openPlan); }
   $('adminBtn').addEventListener('click', openAdmin);
+  if ($('readBtn')) $('readBtn').addEventListener('click', openAdmin);
   const setFocus = on => { document.body.classList.toggle('focus', on); $('oFull').setAttribute('aria-pressed', String(on)); $('oFull').textContent = on ? '結束全螢幕' : '全螢幕'; lsSet('cloudlog.focus', on ? '1' : '0'); render(); if (on) $('office').scrollIntoView({ block: 'start' }); };
   $('oFull').addEventListener('click', () => setFocus(!document.body.classList.contains('focus')));
   if (lsGet('cloudlog.focus') === '1') document.body.classList.add('focus');
@@ -383,10 +390,11 @@
           el('div', { class: 'avatar', 'aria-hidden': 'true' }, a.nick.charAt(0).toUpperCase()),
           el('div', { class: 'd-title' },
             el('b', { class: 'nick', id: 'dTitle' }, a.nick),
-            el('span', { class: 'email' }, a.account),
+            el('span', { class: 'email' }, a.account.startsWith('#') ? '公開精簡版不顯示 email' : a.account),
             el('span', { class: 'sub' }, el('span', { class: 'team' }, a.team ? a.team.label : '未標示'), `共 ${a.total} 筆 · 近 7 天 ${a.week} 筆`)),
           el('div', { class: 'd-tools' }, manageBtn, closeBtn)),
         el('div', { class: 'd-body' },
+          publicHint(),
           panel,
           commandBox(a),
           a.meetings.length ? el('div', { class: 'sect' }, el('h2', {}, '受邀的會議'),
@@ -474,6 +482,7 @@
   const putFile = (store, f) => { if (f && f.id) store[f.id] = { id: f.id, title: f.title, modifiedTime: f.modified, viewUrl: 'https://drive.google.com/file/d/' + f.id + '/view', rec: f.data }; };
   function sendError(e) { return { bad: true, text: apiMsg(e) }; }
   const loginHint = what => el('p', { class: 'hint' }, `${what}請先按右上角「管理登入」。`);
+  const publicHint = () => state.public ? el('p', { class: 'hint warn' }, '公開精簡版：紀錄內容、會議主題與發言、指令內容都不顯示。按右上角「輸入讀取密碼」看完整內容。') : null;
   function commandBox(a) {
     const d = cmdDraft[a.key] || (cmdDraft[a.key] = { title: '', text: '', high: false, gate: false });
     const ti = el('input', { id: 'cmdTitle', type: 'text', placeholder: '標題（例如：整理本週進度）', value: d.title, maxlength: '40' });
@@ -521,6 +530,7 @@
         el('b', {}, q.title), el('span', { class: 'muted' }, `${q.msgs.length} 則 · ${rel(q.lastTs)}`))));
       body = el('div', {},
         el('p', { class: 'hint' }, '會議存在雲端「會議室」資料夾。受邀的代理人在自己的排程執行「雲端會議」時讀取並發言；主持人收尾時寫下結論並把待辦變成指令。'),
+        publicHint(),
         isAdmin ? null : loginHint('要發起會議或以老師身分發言，'),
         reqSection(m),
         items.length ? el('ul', { class: 'mlist' }, ...items) : el('p', { class: 'hint' }, isAdmin ? '還沒有會議。按「發起會議」開第一場。' : '還沒有會議。'));
@@ -657,7 +667,7 @@
   function renderAdminDrawer(m) {
     const host = $('drawerHost');
     const closeBtn = el('button', { class: 'close', type: 'button', 'aria-label': '關閉', onclick: closeDrawer }, '×');
-    let body;
+    let body, readForm = null;
     if (isAdmin) body = el('div', { class: 'form' },
       el('p', { class: 'hint' }, '這個瀏覽器已進入管理模式：可以發起會議、以老師身分發言、下指令、核准指令，以及在人物側欄按「管理」改 TEAM 或移除紀錄。'),
       el('div', { class: 'sect' }, el('h2', {}, '待核准的指令', m && m.awaiting.length ? el('span', { class: 'badge' }, String(m.awaiting.length)) : null),
@@ -676,15 +686,33 @@
         adminBusy = false; render();
       };
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+      const rinp = el('input', { id: 'readPass', type: 'password', autocomplete: 'off', placeholder: 'Apps Script 指令碼屬性 READ_KEY 的值' });
+      const rgo = async () => {
+        if (!rinp.value || readBusy) return; readBusy = true; readMsg = null; render();
+        const prev = readKey; readKey = rinp.value;
+        try { const r = await fetch(CFG.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'read', key: readKey }) });
+          const d = await r.json(); if (d.error) throw Object.assign(new Error(d.error), { code: d.error });
+          lsSet(LS_READ, readKey); readMsg = { text: '已顯示完整內容。這個瀏覽器會記住讀取密碼。' }; readBusy = false; sync(); }
+        catch (e) { readKey = prev; readMsg = { bad: true, text: e.code === 'wrong_key' ? '讀取密碼不對。' : '連不上資料來源：' + (e.message || e) }; readBusy = false; render(); }
+      };
+      rinp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rgo(); } });
+      readForm = state.public || readKey ? el('div', { class: 'sect form' },
+        el('h2', {}, '看完整內容'),
+        state.public ? el('p', { class: 'hint' }, '目前是公開精簡版：只看得到人物、狀態與會議、指令的數量。輸入讀取密碼可看紀錄內容、會議發言與指令。') : el('p', { class: 'hint' }, '這個瀏覽器已輸入讀取密碼。'),
+        state.public ? el('label', { for: 'readPass' }, '讀取密碼') : null, state.public ? rinp : null,
+        el('div', { class: 'm-row' }, state.public ? el('button', { class: 'btn primary', type: 'button', disabled: readBusy ? '' : null, onclick: rgo }, readBusy ? '確認中…' : '顯示完整內容') : null,
+          readKey ? el('button', { class: 'btn', type: 'button', onclick: () => { readKey = ''; lsDel(LS_READ); readMsg = null; sync(); } }, '清除讀取密碼') : null),
+        readMsg ? el('p', { class: 'm-status ' + (readMsg.bad ? 'bad' : 'ok') }, readMsg.text) : null) : null;
       body = el('form', { class: 'form', onsubmit: e => { e.preventDefault(); go(); } },
         el('p', { class: 'hint' }, '輸入管理密碼後，這個瀏覽器可以寫入雲端資料夾。密碼只存在這台裝置的瀏覽器裡。'),
         el('label', { for: 'adminPass' }, '管理密碼'), inp,
         el('div', { class: 'm-row' }, el('button', { class: 'btn primary', type: 'submit', disabled: adminBusy ? '' : null }, adminBusy ? '確認中…' : '登入')));
     }
+    if (readForm) body = el('div', {}, readForm, el('h2', {}, '管理登入（老師）'), body);
     host.replaceChildren(
       el('div', { class: 'scrim', onclick: closeDrawer }),
       el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'aTitle' },
-        el('div', { class: 'd-head' }, el('div', { class: 'd-title' }, el('span', { class: 'r-topic', id: 'aTitle' }, '管理模式'), el('span', { class: 'sub' }, isAdmin ? '已登入' : '未登入')), el('div', { class: 'd-tools' }, closeBtn)),
+        el('div', { class: 'd-head' }, el('div', { class: 'd-title' }, el('span', { class: 'r-topic', id: 'aTitle' }, isAdmin || !state.public ? '管理模式' : '登入'), el('span', { class: 'sub' }, isAdmin ? '已登入' : state.public ? '公開精簡版' : '未登入')), el('div', { class: 'd-tools' }, closeBtn)),
         el('div', { class: 'd-body' }, body, adminMsg ? el('p', { class: 'm-status ' + (adminMsg.bad ? 'bad' : 'ok') }, adminMsg.text) : null)));
     const f = host.querySelector('#adminPass'); if (f && !host.contains(document.activeElement)) f.focus();
   }
@@ -742,6 +770,24 @@
     n.hidden = false;
   }
   // ---------- data: one read-only JSON feed from the Apps Script web app (apps-script/Code.gs) ----------
+  // 有讀取密碼（或管理密碼）就用 POST 拿完整內容；密碼錯就忘掉讀取密碼、改拿公開版
+  async function fetchFeed() {
+    const key = readKey || adminKey;
+    if (key) {
+      const r = await fetch(CFG.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'read', key }) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      if (!d.error) return d;
+      if (d.error !== 'wrong_key') throw new Error(d.error);
+      if (readKey) { readKey = ''; lsDel(LS_READ); readMsg = { bad: true, text: '讀取密碼不對或已更換，目前顯示公開精簡版。' }; }
+    }
+    const url = CFG.endpoint + (CFG.endpoint.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    return d;
+  }
   async function sync() {
     if (syncing) return;
     if (!CFG.endpoint) { setStatus('err', '未設定資料來源'); showNotice('還沒設定資料來源：請照 README 部署 Apps Script，並把網址填進 config.js 的 endpoint。', { bad: true }); blocked = true; render(); return; }
@@ -749,16 +795,13 @@
     setStatus('busy', '讀取雲端資料…');
     if (!Object.keys(state.files).length) render();
     try {
-      const url = CFG.endpoint + (CFG.endpoint.includes('?') ? '&' : '?') + 'v=' + Date.now();
-      const r = await fetch(url, { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json();
-      if (d.error) throw new Error(d.error);
+      await hashReady;
+      const d = await fetchFeed();
       const conv = (arr, parse) => Object.fromEntries((arr || []).map(f => {
         const meta = { id: f.id, title: f.title, modifiedTime: f.modified, viewUrl: 'https://drive.google.com/file/d/' + f.id + '/view' };
         return [f.id, { ...meta, rec: f.data ? parse(f.data, meta) : null }]; }));
       state.files = conv(d.records, parseRec); state.mfiles = conv(d.meetings, parseDoc); state.cfiles = conv(d.commands, parseDoc);
-      state.lastSync = Date.now(); state.lastFull = state.lastSync;
+      state.public = !!d.public; state.lastSync = Date.now(); state.lastFull = state.lastSync;
       lsSet(LS_CACHE, JSON.stringify(state));
       showNotice(null); blocked = false; syncing = false;
       statusLine(); render();

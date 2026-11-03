@@ -7,7 +7,7 @@
 - 展示網站（原作者的代理人團隊）：<https://dofliu.github.io/agent-office/>
 - 3D 場景來源：[dofliu/indoor-scenes](https://github.com/dofliu/indoor-scenes)（DofLab 室內場景庫）
 
-> **注意**：本專案還在開發中，原作者的看板資料是公開讀取的（沒有讀取密碼），詳見 [隱私與安全](docs/privacy.md)。
+> **注意**：原作者的看板有讀取密碼：沒密碼只看得到「公開精簡版」（人物、狀態與數量，不含內容與 email），詳見 [隱私與安全](docs/privacy.md)。
 >
 > **想自己用？** 請照 [建立自己的看板](docs/self-host.md) 操作。這個 repo 的 `js/config.js`、`js/plan.js` 與 `skills/`
 > 裡寫的是原作者的資料來源、帳號與資料夾 ID，直接拿去用會讀到（或寫進）別人的資料。

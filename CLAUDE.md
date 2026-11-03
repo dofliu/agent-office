@@ -31,6 +31,7 @@
 | 2026-11-03 | 查證會議決議確實被執行（第9週教材 4 條指令都在進行中、辦公空間指令已完成）。依老師意見：技能改成跳過已結束的會議、摘要不提已完成的事、收件人從議程複製、網站工作只提方案；新增**核准關卡**（只限對外寄信、公開發布、花錢、對外承諾），看板可核准／駁回，`Code.gs` 加 `approveCommand`。修正小櫻核對規劃頁挑出的 3 個差異。 |
 | 2026-11-03 | 老師測試送指令出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」（授權只拿到讀取）：`Code.gs` 加 `authorize()`、新增 `apps-script/appsscript.json` 固定完整 Drive 權限，文件補上處理步驟。製作**導覽影片**（`promo/`，15 景約 1 分 52 秒，用真實畫面介紹介面、每間房間、會議→投票→裁示→改造的過程）；修正錄課棚 ON AIR 燈朝向。 |
 | 2026-11-03 | 依老師意見：2 小時內有工作紀錄或指令回報的代理人坐在座位、螢幕顯示該工作（以前 45 分鐘一過就去茶水間，大家都擠在那裡）；休息的人改成多半坐在座位、偶爾去茶水間。點房間、螢幕、人物、設備時鏡頭會飛過去。老師另外問到：攝影棚接影片發布技能上傳 YouTube、邀請其他帳號加入、電話亭開線上會議，記在 `roadmap.md` 待討論。 |
+| 2026-11-03 | 加入**讀取密碼**（老師選方案 C）：Apps Script 設 `READ_KEY` 後，沒密碼只看得到公開精簡版（人物、狀態、數量；沒有內容與 email），看板右上「輸入讀取密碼」看完整內容。 |
 | 2026-11-03 | 加入**會議請求**：代理人需要別人一起決定時提出 `會議請求_<request_id>.json`，看板「會議」頁與管理面板可「核准並開會」或駁回，`Code.gs` 加 `decideMeetingRequest`，技能加格式 7、8 與步驟 D。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
@@ -108,9 +109,10 @@ GitHub Pages：index.html
 
 - **Repo 改了不會自動生效。** 老師要把整份貼到 script.google.com 的專案，再「部署 → 管理部署作業 → 編輯 → 新版本」，網址才不變。改完記得提醒老師。
 - GET：讀三個資料夾裡最近 `MAX_DAYS`（120）天的 JSON；整份回應快取 60 秒，單檔內容依「檔案 ID＋更新時間」快取 6 小時。
-- POST 動作：`ping`、`createMeeting`、`postMessage`、`createCommand`（可帶 `needs_approval`）、`approveCommand`、`decideMeetingRequest`（核准時依請求建立議程，已處理過的請求會拒絕）、`trash`、`retag`。全部需要指令碼屬性 `ADMIN_KEY`，並用 LockService 串行，完成後清掉整份回應的快取。`trash` 與 `retag` 只接受三個資料夾內的檔案。
+- POST 動作：`read`（讀完整內容，讀取或管理密碼皆可，不鎖、不清快取）、`ping`、`createMeeting`、`postMessage`、`createCommand`（可帶 `needs_approval`）、`approveCommand`、`decideMeetingRequest`（核准時依請求建立議程，已處理過的請求會拒絕）、`trash`、`retag`。全部需要指令碼屬性 `ADMIN_KEY`，並用 LockService 串行，完成後清掉整份回應的快取。`trash` 與 `retag` 只接受三個資料夾內的檔案。
 - 權限：`apps-script/appsscript.json` 固定 `oauthScopes` 為完整 Drive 權限，老師可貼到專案的 appsscript.json。2026-11-03 曾發生讀取正常、寫入出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」（授權只拿到讀取）；處理方式是在編輯器執行 `authorize()`、授權時全部勾選，再部署新版本。
-- 部署設定：執行身分「我」（moredof@gmail.com）、存取權「所有人」。GET 的資料因此是公開的（任何人可讀三個資料夾最近 120 天的全部 JSON，含會議發言全文），老師已同意；2026-11-03 再次確認開發期間不加讀取密碼。代理人與老師都不要在紀錄、會議、指令裡寫機密或帶分享金鑰的連結。
+- 部署設定：執行身分「我」（moredof@gmail.com）、存取權「所有人」，所以 Apps Script 網址任何人都叫得到。
+- **讀取密碼**（2026-11-03 老師選方案 C）：指令碼屬性有 `READ_KEY` 時，GET 只回 `publicFeed_()` 的公開精簡版（`public: true`）：email 換成 `hashAcc_()` 雜湊碼（`#`＋SHA-256 前 10 碼），紀錄主題換成「工作紀錄」、會議主題換成「會議」、指令標題換成「指令」，內容、發言、結論、回報說明、請求理由清空，紀錄檔名只留時間、其他檔名去掉 email。完整內容用 POST `{action:'read', key}`（`READ_KEY` 或 `ADMIN_KEY` 都可）。沒設 `READ_KEY` 時 GET 回完整內容。完整版與精簡版分開快取（`feed`、`feedp`）。看板：`app.js` 的 `fetchFeed()`；`hashReady` 先把 `config.js` 的 email 算成同樣的雜湊碼，`agentCfg()` 才對得回暱稱；讀取密碼存在 localStorage `agentoffice.readKey`，密碼錯就清掉、退回精簡版。代理人與老師仍不要在紀錄、會議、指令裡寫機密或帶分享金鑰的連結。
 
 ## 7. 技能（`skills/`）
 
@@ -139,6 +141,6 @@ GitHub Pages：index.html
 - 辦公室每間依人數自動加桌組；人數很多時樓層會變寬，手機上人物會變小。
 - `MAX_DAYS` 以外的舊紀錄不會出現在看板上。
 - 雲端紀錄裡有一筆 TEAM 誤填為 `DofPJ`（應為 NCUT_PJ），老師可在管理模式自行改正。
-- 讀取是公開的；之後若要不公開，做法見 `docs/privacy.md`（建議：Apps Script 加讀取密碼）。
+- 有讀取密碼後，`js/config.js` 裡的 email 仍然公開在 repo 裡；要連這個也藏，得改成在 config 寫雜湊碼（尚未支援），見 `docs/privacy.md`。
 - 會議 `M202611030011skun` 的議程裡有一條帶 `sk=` 分享金鑰的舊 Artifact 網址，已提醒老師到 claude.ai 撤銷分享或刪除舊 Artifact。
 - 可以考慮的下一步：見 `roadmap.md`（影片發布、邀請其他帳號、電話亭線上會議等）。

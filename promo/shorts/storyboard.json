@@ -1,0 +1,47 @@
+{
+ "fps": 30,
+ "width": 1080,
+ "height": 1920,
+ "xfade": 0.4,
+ "scenes": [
+  {
+   "file": "v01_hook.html",
+   "duration": 6.0,
+   "transition": "fade"
+  },
+  {
+   "file": "v02_office.html",
+   "duration": 5.5,
+   "transition": "smoothup"
+  },
+  {
+   "file": "v03_screen.html",
+   "duration": 5.5,
+   "transition": "circleopen"
+  },
+  {
+   "file": "v04_circle.html",
+   "duration": 6.0,
+   "transition": "fade"
+  },
+  {
+   "file": "v05_meet.html",
+   "duration": 6.5,
+   "transition": "fadeblack"
+  },
+  {
+   "file": "v06_vote.html",
+   "duration": 5.5,
+   "transition": "fade"
+  },
+  {
+   "file": "v07_upgrade.html",
+   "duration": 7.0,
+   "transition": "fade"
+  },
+  {
+   "file": "v08_end.html",
+   "duration": 5.8
+  }
+ ]
+}

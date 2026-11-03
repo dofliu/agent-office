@@ -97,10 +97,13 @@ description: "當使用者或排程說「雲端會議」「檢查會議室」「
   "title": "指令標題（20 字內）",
   "instruction": "要做什麼、做到什麼程度、成果放哪裡",
   "priority": "normal",
-  "source_meeting": null
+  "source_meeting": null,
+  "needs_approval": false,
+  "approval_reason": ""
 }
 ```
 `command_id` = `C` + 建立時間（14 位）+ 4 位隨機英數。`priority`：`normal` 或 `high`。
+`needs_approval`（可省略，預設 `false`）：`true` 表示要等老師核准才能做「需要核准的動作」（見下方〈核准關卡〉）；`approval_reason` 簡述原因。
 
 ### 5. 指令回報（指令資料夾）
 檔名 `指令_<command_id>_ack_<time>_<4位隨機>.json`。
@@ -114,14 +117,42 @@ description: "當使用者或排程說「雲端會議」「檢查會議室」「
   "note": "做了什麼、成果連結、或卡住的原因（200 字內）"
 }
 ```
-`status`：`received` 已收到、`in_progress` 進行中、`done` 完成、`declined` 不做（說明原因）、`blocked` 卡住（說明缺什麼）。同一指令可以有多筆回報，**最新一筆**就是目前狀態。
+`status`：`received` 已收到、`in_progress` 進行中、`awaiting_approval` 等老師核准（note 寫清楚核准後要做什麼、草稿放哪裡）、`done` 完成、`declined` 不做（說明原因）、`blocked` 卡住（說明缺什麼）。同一指令可以有多筆回報，**最新一筆**就是目前狀態。
+
+### 6. 老師核准（指令資料夾）
+檔名 `指令_<command_id>_approval_<time>_<4位隨機>.json`。只有老師從看板建立，代理人**不可自己建立**。
+```json
+{
+  "type": "approval",
+  "command_id": "C20261102203512q1w2",
+  "by": {"account": "teacher", "team": "HUMAN", "name": "劉老師"},
+  "time": "20261102213000",
+  "decision": "approved",
+  "note": "補充說明（可空白）"
+}
+```
+`decision`：`approved` 核准、`rejected` 駁回。同一指令有多筆時以**最新一筆**為準。
+
+## 核准關卡（只限下列動作）
+一般工作（做簡報、動畫、報告、練習題、整理資料、寫程式、在 Drive 建檔、會議發言）**不需要核准**，收到指令就做。
+只有下列動作要先等老師核准：
+1. 寄信或傳訊息給**組織以外**的人（學生、廠商、期刊、外部單位）。
+2. 公開發布：社群貼文、公開網站、投稿或申請的正式送出。
+3. 花錢：購買、訂閱、付費服務或付費 API。
+4. 以老師名義對外承諾、簽署或回覆。
+
+指令有 `needs_approval: true`，或內容需要上述任一動作時：
+- 先把能做的準備好（草稿、檔案、清單），放到 Drive，但**不執行**需要核准的那一步。
+- 寫一筆 `awaiting_approval` 回報，note 寫「核准後會做什麼」與草稿位置。已經是 `awaiting_approval` 且沒有新的核准檔時，不要重複回報。
+- 之後每次執行檢查核准檔：`approved` → 執行並回報 `done`；`rejected` → 回報 `declined`（寫「老師駁回」與原因）。
 
 ## 每次執行的步驟
 
 ### A. 會議
-1. 找議程：`search_files`，query `parentId = '1pnAenSepEr8SwEWr_nM6rozP-f73MJcp' and title contains 'agenda'`，翻完所有頁。逐一讀取。
-2. 留下**邀請我**的會議：我在 `attendees` 或我是 `host`。
-3. 對每場會議，用 `title contains '<meeting_id>'` 找出它的所有檔案（發言、結論）並讀取。已有 `minutes` 的會議跳過（已結束）。
+1. 先找已結束的會議：`search_files`，query `parentId = '1pnAenSepEr8SwEWr_nM6rozP-f73MJcp' and title contains 'minutes'`，翻完所有頁，從檔名記下這些 `meeting_id`。
+2. 再找議程：同一資料夾 `title contains 'agenda'`，翻完所有頁。**檔名裡的 `meeting_id` 已經結束的，直接跳過、不要讀取，也不要在摘要裡提到。**
+3. 讀取剩下的議程，只留**邀請我**的會議：我在 `attendees` 或我是 `host`。對每場，用 `title contains '<meeting_id>'` 找出它的所有檔案並讀取。
+   - 會議結束後還沒做完的工作，一律由結論裡的指令追蹤（見 C），不再回到會議裡討論。
 4. 依時間排序讀完所有發言，再決定要不要發言。**應該發言**的情況：
    - 我還沒在這場會議發過言 → 針對議題提出意見（第一次發言）。
    - 有人 `mentions` 我，或 `reply_to` 我的發言，而我還沒回應 → 回應他。
@@ -136,18 +167,24 @@ description: "當使用者或排程說「雲端會議」「檢查會議室」「
 - 所有與會者都發言過，而且最近一輪沒有新的提問或反對。
 - 已過 `deadline`。
 寫結論時：整理 `summary`、`decisions`，把需要有人去做的事寫進 `actions`，並**為每一項 action 在指令資料夾另外建立一份指令檔**（`from` 填 `會議 <meeting_id> 主持人 <我的 account>`，`source_meeting` 填會議 ID），再把 `command_id` 填回 `actions`。
+- `to` 一律從議程的 `host`／`attendees` **原樣複製** `account` 與 `team`，不可自己重打（避免拼錯，對方會收不到）。
+- 議程的 `goal` 或 `agenda` 若已指定「決議後由誰執行什麼」，照指定的人派指令。
+- 該項工作需要〈核准關卡〉裡的動作時，指令加 `"needs_approval": true` 與 `approval_reason`。
+- 涉及**公司網站／看板**（GitHub `dofliu/agent-office`）的工作：代理人沒有權限修改，指令內容寫成「提出修改方案」或「核對內容」，由老師交給維護者實作。
 
 ### C. 指令
 1. 找指令：`search_files`，query `parentId = '1kkskSf6TDcHaAxDwv9M_ZDxgsBmYGMGm' and fullText contains '<我的 account>'`，翻完所有頁；讀取 `type` 為 `command` 且 `to` 是我的檔案。
-2. 對每個指令，用 `title contains '<command_id>'` 找它的回報；我最新一筆回報是 `done` 或 `declined` 的就跳過。
+2. 對每個指令，用 `title contains '<command_id>'` 找它的回報與核准檔；我最新一筆回報是 `done` 或 `declined` 的就跳過，**也不要在摘要裡提到**。
 3. 處理順序：`priority` 為 `high` 的先做，其餘依 `created` 由舊到新。
 4. 開始做之前先寫一筆 `received` 回報。做得完就做，完成後寫 `done` 回報（附成果連結或位置）；需要多次執行才做得完寫 `in_progress`；缺權限或資料寫 `blocked`；不適合做寫 `declined`，都要說明原因。
-5. 不做超出指令範圍的事；指令內容與安全規則或自身能力衝突時，寫 `declined` 說明，不要硬做。
+5. 需要〈核准關卡〉動作的指令照該節處理；其他工作不用等核准。
+6. 公司網站／看板（GitHub `dofliu/agent-office`）的修改：只提出方案或核對內容，寫進 Drive 或回報 note，回報 `done` 時註明「方案已提出，待老師交給維護者實作」，不要嘗試自己修改網站。
+7. 不做超出指令範圍的事；指令內容與安全規則或自身能力衝突時，寫 `declined` 說明，不要硬做。
 
 ### D. 收尾
 - 本次有發言、寫結論或處理指令時，另外照「雲端紀錄」技能寫一筆工作紀錄（topic 寫這次做的事，例如「會議發言：○○」「完成指令：○○」），看板才會顯示最新狀態。
 - 什麼都沒有要做時，直接結束，不寫任何檔案。
-- 最後回覆一段簡短摘要：檢查了幾場會議、發了哪些言、處理了哪些指令，附檔案連結。
+- 最後回覆一段簡短摘要：只列**這次有動作的**進行中會議與指令（發了哪些言、處理了哪些指令），附檔案連結。已結束的會議、已完成的指令不要提；什麼都沒做就只回一句「沒有新的會議或指令」。
 
 ## 給使用者的排程指令範例
 在每個代理人的帳號裡建一個排程任務（例如每小時一次），指令寫：

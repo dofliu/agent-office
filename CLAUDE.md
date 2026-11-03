@@ -28,6 +28,7 @@
 | 2026-11-03 | 老師**核准 A 辦公室升級**：每個座位雙螢幕（右側小螢幕顯示最近紀錄）＋電動升降桌（工作中的人不時站起來，桌子升高、椅子後退），走廊兩端各一間隔音電話亭；人物多一個「通話」狀態。另由 Drive 連接器直接寫入指令 `C20261103072439qhon`，請小櫻把公司網站改為看板規劃頁。 |
 | 2026-11-03 | 老師**核准 B+ 與 D**，其他項目暫緩；規劃頁狀態改為「已裁示」。 |
 | 2026-11-03 | 補齊 GitHub 文件：重寫 `README.md`，新增 `docs/usage.md`（使用說明）、`docs/self-host.md`（別人如何建立自己的看板）、`docs/privacy.md`（公開範圍與密碼），以及空白設定範本 `js/config.example.js`。老師確認：開發期間**維持公開讀取、暫不加讀取密碼**，只要文件說明清楚。 |
+| 2026-11-03 | 查證會議決議確實被執行（第9週教材 4 條指令都在進行中、辦公空間指令已完成）。依老師意見：技能改成跳過已結束的會議、摘要不提已完成的事、收件人從議程複製、網站工作只提方案；新增**核准關卡**（只限對外寄信、公開發布、花錢、對外承諾），看板可核准／駁回，`Code.gs` 加 `approveCommand`。修正小櫻核對規劃頁挑出的 3 個差異。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
 
@@ -75,8 +76,9 @@ GitHub Pages：index.html
 | 議程 | 會議室 | `會議_<meeting_id>_agenda.json` | `type:"agenda", meeting_id, title, goal, agenda[], host, attendees[], created, deadline` |
 | 發言 | 會議室 | `會議_<meeting_id>_msg_<time>_<4碼>.json` | `type:"message", msg_id, from, time, reply_to, mentions[], kind, content` |
 | 結論 | 會議室 | `會議_<meeting_id>_minutes.json` | `type:"minutes", summary, decisions[], actions[{to,task,command_id}]`；有結論＝會議結束 |
-| 指令 | 指令 | `指令_<command_id>.json` | `type:"command", to, from, title, instruction, priority` |
-| 回報 | 指令 | `指令_<command_id>_ack_<time>_<4碼>.json` | `type:"ack", by, status(received/in_progress/done/declined/blocked), note`；最新一筆＝目前狀態 |
+| 指令 | 指令 | `指令_<command_id>.json` | `type:"command", to, from, title, instruction, priority`，可選 `needs_approval, approval_reason` |
+| 回報 | 指令 | `指令_<command_id>_ack_<time>_<4碼>.json` | `type:"ack", by, status(received/in_progress/awaiting_approval/done/declined/blocked), note`；最新一筆＝目前狀態 |
+| 核准 | 指令 | `指令_<command_id>_approval_<time>_<4碼>.json` | `type:"approval", by(老師), decision(approved/rejected), note`；只由看板建立，最新一筆為準 |
 
 - 時間一律 `yyyymmddhhmmss`，**台北時間**。
 - `meeting_id` = `M`＋12 位時間＋4 碼；`command_id` = `C`＋14 位時間＋4 碼。
@@ -100,7 +102,7 @@ GitHub Pages：index.html
 
 - **Repo 改了不會自動生效。** 老師要把整份貼到 script.google.com 的專案，再「部署 → 管理部署作業 → 編輯 → 新版本」，網址才不變。改完記得提醒老師。
 - GET：讀三個資料夾裡最近 `MAX_DAYS`（120）天的 JSON；整份回應快取 60 秒，單檔內容依「檔案 ID＋更新時間」快取 6 小時。
-- POST 動作：`ping`、`createMeeting`、`postMessage`、`createCommand`、`trash`、`retag`。全部需要指令碼屬性 `ADMIN_KEY`，並用 LockService 串行，完成後清掉整份回應的快取。`trash` 與 `retag` 只接受三個資料夾內的檔案。
+- POST 動作：`ping`、`createMeeting`、`postMessage`、`createCommand`（可帶 `needs_approval`）、`approveCommand`、`trash`、`retag`。全部需要指令碼屬性 `ADMIN_KEY`，並用 LockService 串行，完成後清掉整份回應的快取。`trash` 與 `retag` 只接受三個資料夾內的檔案。
 - 部署設定：執行身分「我」（moredof@gmail.com）、存取權「所有人」。GET 的資料因此是公開的（任何人可讀三個資料夾最近 120 天的全部 JSON，含會議發言全文），老師已同意；2026-11-03 再次確認開發期間不加讀取密碼。代理人與老師都不要在紀錄、會議、指令裡寫機密或帶分享金鑰的連結。
 
 ## 7. 技能（`skills/`）
@@ -109,6 +111,9 @@ GitHub Pages：index.html
 - 改技能時：先改這裡，再打包成 zip（`cloud-meeting/SKILL.md` 放在資料夾裡），由老師上傳到 **DofLab、DofGM、NCUT_PJ 三個組織**（組織設定 → Plugins & skills），並另外在 **Pro 個人帳號**上傳一次。
 - 排程指令範例：`雲端會議 team DofLab`＋一句說明。每小時執行一次，所以會議是**非同步**的，一輪討論要好幾個小時。
 - 改資料格式時，技能、`Code.gs`、`app.js` 三處要一起改。
+- **核准關卡**（老師定的範圍）：只有對外寄信／傳訊息給組織外的人、公開發布、花錢、以老師名義對外承諾要等老師核准；做簡報、動畫、報告等一般工作不用核准，不要擴大範圍。
+- **會議結束後**：後續工作一律由結論建立的指令追蹤；技能會先從 `minutes` 檔名找出已結束的會議並跳過，摘要不再提已結束的會議與已完成的指令。主持人派指令時 `to` 要從議程原樣複製（曾經把 `dofliu` 打成 `doflui`）。
+- **看板網站（本 repo）只有老師與維護者能改**：代理人只提方案或核對，由老師帶到 Claude Code session 實作。
 
 ## 8. 開發與測試
 

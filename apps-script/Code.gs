@@ -2,7 +2,7 @@
  * 雲端紀錄看板的資料來源（Google Apps Script 網頁應用程式）。
  *
  * GET  ：以部署者本人的身分讀取三個 Drive 資料夾中的 JSON 檔，合併成一份 JSON 給看板（公開唯讀）。
- * POST ：管理模式的寫入（發起會議、老師發言、下指令、改 TEAM、移到垃圾桶），需要管理密碼。
+ * POST ：管理模式的寫入（發起會議、老師發言、下指令、核准指令、改 TEAM、移到垃圾桶），需要管理密碼。
  *        密碼放在「專案設定 → 指令碼屬性」的 ADMIN_KEY；沒設定時一律拒絕寫入。
  *
  * 部署：script.google.com 新專案貼上本檔 → 部署 → 新增部署作業 → 「網頁應用程式」
@@ -129,9 +129,21 @@ const ACTIONS = {
     const obj = {
       type: 'command', command_id: id, to: to, from: '劉老師（看板）', created: t,
       title: str_(req.title, 40) || str_(req.instruction, 20), instruction: str_(req.instruction, 2000),
-      priority: req.priority === 'high' ? 'high' : 'normal', source_meeting: null
+      priority: req.priority === 'high' ? 'high' : 'normal', source_meeting: null,
+      needs_approval: req.needs_approval === true, approval_reason: str_(req.approval_reason, 200)
     };
     return { file: create_(FOLDERS.commands, '指令_' + id + '.json', obj) };
+  },
+
+  // 老師核准／駁回一條需要核准的指令（對外寄信、公開發布、花錢、以老師名義對外承諾）
+  approveCommand: req => {
+    const cid = str_(req.command_id, 40);
+    if (!/^C\d{14}[0-9a-z]{4}$/i.test(cid)) throw bad_('指令編號格式不對');
+    const decision = req.decision === 'rejected' ? 'rejected' : req.decision === 'approved' ? 'approved' : '';
+    if (!decision) throw bad_('decision 需為 approved 或 rejected');
+    const t = now14_();
+    const obj = { type: 'approval', command_id: cid, by: { account: 'teacher', team: 'HUMAN', name: '劉老師' }, time: t, decision: decision, note: str_(req.note, 300) };
+    return { file: create_(FOLDERS.commands, '指令_' + cid + '_approval_' + t + '_' + rand4_() + '.json', obj) };
   },
 
   // 移到垃圾桶（30 天內可在 Drive 還原）；只接受三個資料夾裡的檔案

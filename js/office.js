@@ -885,7 +885,7 @@ function renderLegend() {
   t.onclick = () => { showNames = !showNames; try { localStorage.setItem('cloudlog.names', showNames ? '1' : '0'); } catch {} renderLegend(); };
   legend.append(t);
   if (floor) { const teamRooms = floor.rooms.filter(r => r.kind === 'office' && r.team !== '__shared').length, shared = floor.byTeam.has('__shared');
-    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室 · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''} ＋ B+ 會議室 ＋ 茶水間 ＋ 錄課棚 ＋ 電話亭 · ${agents.size} 位代理人`; }
+    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室 · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''} ＋ B+ 會議／試播室 ＋ 茶水間 ＋ 錄課棚 ＋ 電話亭 · ${agents.size} 位代理人`; }
 }
 
 // ---------- animation ----------

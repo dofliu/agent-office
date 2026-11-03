@@ -1,8 +1,10 @@
 /**
  * 雲端紀錄看板的資料來源（Google Apps Script 網頁應用程式）。
  *
- * GET  ：以部署者本人的身分讀取三個 Drive 資料夾中的 JSON 檔，合併成一份 JSON 給看板（公開唯讀）。
- * POST ：管理模式的寫入（發起會議、老師發言、下指令、核准指令、改 TEAM、移到垃圾桶），需要管理密碼。
+ * GET  ：以部署者本人的身分讀取三個 Drive 資料夾中的 JSON 檔，合併成一份 JSON 給看板。
+ *        指令碼屬性有設 READ_KEY 時，GET 只回「公開精簡版」：沒有紀錄內容、會議發言、指令內文，email 換成雜湊碼。
+ *        完整內容要用 POST {action:'read', key:READ_KEY（或 ADMIN_KEY）} 取得。沒設 READ_KEY 時 GET 回完整內容（舊行為）。
+ * POST ：read 以外都是管理模式的寫入（發起會議、老師發言、下指令、核准指令、改 TEAM、移到垃圾桶），需要管理密碼。
  *        密碼放在「專案設定 → 指令碼屬性」的 ADMIN_KEY；沒設定時一律拒絕寫入。
  *
  * 部署：script.google.com 新專案貼上本檔 → 部署 → 新增部署作業 → 「網頁應用程式」
@@ -18,16 +20,70 @@ const FEED_TTL = 60;       // 整份回應快取秒數
 const FILE_TTL = 21600;    // 單檔內容快取秒數（6 小時，檔案更新時 key 會變）
 
 function doGet() {
-  const cache = CacheService.getScriptCache();
-  let body = getChunked_(cache, 'feed');
+  const locked = !!PropertiesService.getScriptProperties().getProperty('READ_KEY');
+  return ContentService.createTextOutput(feedText_(locked)).setMimeType(ContentService.MimeType.JSON);
+}
+// 完整版或公開精簡版的整份 JSON（各自快取 FEED_TTL 秒）
+function feedText_(publicOnly) {
+  const cache = CacheService.getScriptCache(), key = publicOnly ? 'feedp' : 'feed';
+  let body = getChunked_(cache, key);
   if (!body) {
-    const since = Date.now() - MAX_DAYS * 86400000;
-    const feed = { generated: new Date().toISOString() };
-    for (const name in FOLDERS) feed[name] = readFolder_(FOLDERS[name], since, cache);
+    let full = publicOnly ? getChunked_(cache, 'feed') : null;
+    let feed;
+    if (full) feed = JSON.parse(full);
+    else {
+      const since = Date.now() - MAX_DAYS * 86400000;
+      feed = { generated: new Date().toISOString() };
+      for (const name in FOLDERS) feed[name] = readFolder_(FOLDERS[name], since, cache);
+      putChunked_(cache, 'feed', JSON.stringify(feed), FEED_TTL);
+    }
+    if (publicOnly) feed = publicFeed_(feed);
     body = JSON.stringify(feed);
-    putChunked_(cache, 'feed', body, FEED_TTL);
+    if (publicOnly) putChunked_(cache, 'feedp', body, FEED_TTL);
   }
-  return ContentService.createTextOutput(body).setMimeType(ContentService.MimeType.JSON);
+  return body;
+}
+
+// ---------------------------------------------------------------- 公開精簡版
+// 只留 3D 辦公室需要的骨架：誰（email 換成雜湊碼）、哪個 TEAM、什麼時間、會議與指令的狀態。
+// 紀錄主題與內容、會議主題與發言、結論、指令內文、回報說明一律拿掉。
+function hashAcc_(a) {
+  a = String(a || '').trim().toLowerCase();
+  if (!a || a === 'teacher') return a;
+  const d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, a, Utilities.Charset.UTF_8);
+  return '#' + d.slice(0, 5).map(b => ((b + 256) % 256).toString(16).padStart(2, '0')).join('');
+}
+function hp_(p) { return p && typeof p === 'object' ? { account: hashAcc_(p.account), team: p.team || null, name: p.team === 'HUMAN' ? p.name : undefined } : null; }
+function publicFeed_(feed) {
+  // 檔名也可能夾帶 email 或主題（代理人沒照標準檔名時）：紀錄只留時間，其他檔名把 email 洗掉
+  const scrub = t => String(t || '').replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g, '#');
+  const pick = (files, fn, rec) => (files || []).map(f => ({ id: f.id, modified: f.modified, data: f.data ? fn(f.data) : null,
+    title: rec ? '雲端紀錄_' + ((/\d{14}/.exec(f.title || '') || [''])[0]) + '.json' : scrub(f.title) })).filter(f => f.data);
+  const hps = arr => (Array.isArray(arr) ? arr : []).map(hp_).filter(Boolean);
+  const rec = o => {
+    const acc = o.account || o.email || o['帳號']; if (!acc) return null;
+    return { account: hashAcc_(acc), team: o.team || o.TEAM || o.Team || o['所屬'] || '', last_time: o.last_time || o.time || o.timestamp || o['時間'] || '', topic: '工作紀錄', content: '' };
+  };
+  const meet = o => {
+    switch (o.type) {
+      case 'agenda': return { type: 'agenda', meeting_id: o.meeting_id, title: '會議', host: hp_(o.host), attendees: hps(o.attendees), created: o.created, deadline: o.deadline,
+        source_request: o.source_request || undefined, requested_by: hp_(o.requested_by) || undefined };
+      case 'message': return { type: 'message', meeting_id: o.meeting_id, msg_id: o.msg_id, from: hp_(o.from), time: o.time, reply_to: o.reply_to || null, mentions: [], kind: o.kind, content: '' };
+      case 'minutes': return { type: 'minutes', meeting_id: o.meeting_id, by: hp_(o.by), time: o.time, summary: '', decisions: [], actions: [] };
+      case 'meeting_request': return { type: 'meeting_request', request_id: o.request_id, from: hp_(o.from), created: o.created, title: '會議請求', host: hp_(o.host), attendees: hps(o.attendees), hours: o.hours };
+      case 'request_decision': return { type: 'request_decision', request_id: o.request_id, time: o.time, decision: o.decision, meeting_id: o.meeting_id || null };
+      default: return null;
+    }
+  };
+  const cmd = o => {
+    switch (o.type) {
+      case 'command': return { type: 'command', command_id: o.command_id, to: hp_(o.to), created: o.created, title: '指令', priority: o.priority, needs_approval: !!o.needs_approval, source_meeting: o.source_meeting || null };
+      case 'ack': return { type: 'ack', command_id: o.command_id, by: hp_(o.by), time: o.time, status: o.status, note: '' };
+      case 'approval': return { type: 'approval', command_id: o.command_id, time: o.time, decision: o.decision };
+      default: return null;
+    }
+  };
+  return { generated: feed.generated, public: true, records: pick(feed.records, rec, true), meetings: pick(feed.meetings, meet), commands: pick(feed.commands, cmd) };
 }
 
 function readFolder_(folderId, since, cache) {
@@ -88,7 +144,12 @@ const TZ = 'Asia/Taipei';
 function doPost(e) {
   let req;
   try { req = JSON.parse(e.postData.contents); } catch (x) { return out_({ ok: false, error: 'bad_request' }); }
-  const key = PropertiesService.getScriptProperties().getProperty('ADMIN_KEY');
+  const props = PropertiesService.getScriptProperties(), key = props.getProperty('ADMIN_KEY');
+  if (req && req.action === 'read') {   // 完整內容：讀取密碼或管理密碼都可以
+    const rk = props.getProperty('READ_KEY');
+    if (!req.key || (req.key !== rk && req.key !== key)) { Utilities.sleep(1000); return out_({ ok: false, error: 'wrong_key' }); }
+    return ContentService.createTextOutput(feedText_(false)).setMimeType(ContentService.MimeType.JSON);
+  }
   if (!key) return out_({ ok: false, error: 'admin_disabled' });
   if (!req || req.key !== key) { Utilities.sleep(1000); return out_({ ok: false, error: 'wrong_key' }); }
   const lock = LockService.getScriptLock();
@@ -243,5 +304,5 @@ const bad_ = msg => { const e = new Error(msg); e.code = 'bad_request'; return e
 const now14_ = () => fmt14_(new Date());
 const fmt14_ = d => Utilities.formatDate(d, TZ, 'yyyyMMddHHmmss');
 const rand4_ = () => Math.random().toString(36).slice(2, 6);
-function clearFeed_() { CacheService.getScriptCache().remove('feed:n'); }
+function clearFeed_() { CacheService.getScriptCache().removeAll(['feed:n', 'feedp:n']); }
 function out_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }

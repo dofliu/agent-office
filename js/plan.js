@@ -21,8 +21,8 @@ window.AGENT_OFFICE_PLAN = {
     ] },
     { level: '優先', items: [
       { id: 'D', name: '錄課／錄音棚', approved: true, detail: '隔音、補光；旁白收音（電容麥克風＋小型隔音罩）；直式拍攝位（9:16 補光燈、手機／相機直立架、背景布），Shorts 與動畫館旁白同棚錄；預留燈光與收音接線，方便接自動化錄製腳本。' },
-      { id: 'H', name: 'GPU 模擬運算站', approved: 'later', detail: '（會議中由自來也提出，未列入結論決議）Blender 建模、液壓／變槳模擬、影片算圖；放 B+ 旁。' },
-      { id: 'I', name: '文件輸出站', approved: 'later', detail: '（會議中由鼬提出，未列入結論決議）A3 彩色多功能事務機（雙面、自動送稿）＋可上鎖文件櫃；放成果交付區旁。' }
+      { id: 'H', name: 'GPU 模擬運算站', approved: 'later', detail: '（會議中由岳衡〔NCUT_PJ〕提出，未列入結論決議）Blender 建模、液壓／變槳模擬、影片算圖；放 B+ 旁。' },
+      { id: 'I', name: '文件輸出站', approved: 'later', detail: '（會議中由青嵐〔DofLab〕提出，未列入結論決議）A3 彩色多功能事務機（雙面、自動送稿）＋可上鎖文件櫃；放成果交付區旁。' }
     ] },
     { level: '可延後', items: [
       { id: 'A', name: '辦公室升級', approved: true, detail: '每人雙螢幕＋電動升降桌、2 間單人隔音電話亭。' },

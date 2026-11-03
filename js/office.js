@@ -695,25 +695,55 @@ function buildFloor(teams, needShared, projects = []) {
 
 // ---------- people ----------
 const SKIN = 0xf0c8a4, PANTS = 0x2d3640;
+const EYES = 0x1b1d26, BROWS = 0x3a2a22, MOUTH = 0x8a3b36, SHOES = 0x1d2127;
 // A low-poly person. `look` (config.agents[].look) sets hair colour/style, clothes, skin and accessories.
+// Optional look fields (all have defaults, so old configs still work):
+//   pants 褲子、shoes 鞋子、eyes 眼睛、brows 眉毛（預設髮色）顏色；glasses 眼鏡、badge 識別證（true 或顏色）；height 身高倍率（0.85～1.15，預設 1）。
+// Face, legs and blinking follow the 2026-11-03 meeting M202611031429y54f (plan B, command C20261103165839m9c0).
 function makePerson(color, look = {}) {
   const g = new THREE.Group(), mats = [];
   const mat = (c, r = .7) => { const m = new THREE.MeshStandardMaterial({ color: c, roughness: r }); mats.push(m); return m; };
   const shirt = mat(look.shirt || color, .6), skin = mat(look.skin || SKIN), pants = mat(look.pants || PANTS, .8);
   const hips = new THREE.Group(); hips.position.y = .5; g.add(hips);
-  const legs = new THREE.Mesh(new THREE.BoxGeometry(.3, .5, .2), pants); legs.position.y = -.25; hips.add(legs);
+  // two legs: hip pivot → thigh → knee pivot → shin + shoe, so they swing when walking and bend when seated
+  const shoe = mat(look.shoes || SHOES, .5);
+  const leg = side => { const hp = new THREE.Group(); hp.position.x = side * .08; hips.add(hp);
+    const thigh = new THREE.Mesh(new THREE.BoxGeometry(.13, .26, .18), pants); thigh.position.y = -.13; hp.add(thigh);
+    const knee = new THREE.Group(); knee.position.y = -.25; hp.add(knee);
+    const shin = new THREE.Mesh(new THREE.BoxGeometry(.12, .23, .16), pants); shin.position.y = -.115; knee.add(shin);
+    const sh = new THREE.Mesh(new THREE.BoxGeometry(.13, .05, .22), shoe); sh.position.set(0, -.225, -.03); knee.add(sh);
+    hp.userData.knee = knee; return hp; };
+  const legL = leg(-1), legR = leg(1);
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(.2, .3, 4, 12), shirt); torso.position.y = .84; g.add(torso);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(.055, .065, .1, 10), skin); neck.position.y = 1.17; g.add(neck);
   const head = new THREE.Group(); head.position.y = 1.32; g.add(head);
   head.add(new THREE.Mesh(new THREE.SphereGeometry(.15, 18, 14), skin));
   const nose = new THREE.Mesh(new THREE.SphereGeometry(.032, 8, 6), skin); nose.position.set(0, -.01, -.15); head.add(nose);
+  // face (looks toward -z): eyes blink (scale.y), brows, a small smile (half torus)
+  const eyeM = mat(look.eyes || EYES, .3), browM = mat(look.brows || look.hair || BROWS, .8);
+  const eyes = [-1, 1].map(sx => { const e = new THREE.Mesh(new THREE.SphereGeometry(.022, 10, 8), eyeM); e.position.set(sx * .05, .03, -.142); head.add(e); return e; });
+  for (const sx of [-1, 1]) { const b = new THREE.Mesh(new THREE.BoxGeometry(.05, .012, .012), browM); b.position.set(sx * .05, .068, -.137); b.rotation.z = -sx * .12; head.add(b); }
+  if (!(look.extra || []).includes('mask')) { const mo = new THREE.Mesh(new THREE.TorusGeometry(.03, .007, 6, 12, Math.PI), mat(MOUTH, .6)); mo.position.set(0, -.055, -.142); mo.rotation.z = Math.PI; head.add(mo); }
   const arm = side => { const pv = new THREE.Group(); pv.position.set(side * .27, 1.08, 0);
-    const m = new THREE.Mesh(new THREE.CapsuleGeometry(.055, .32, 3, 8), shirt); m.position.y = -.21; pv.add(m); g.add(pv); return pv; };
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(.055, .32, 3, 8), shirt); m.position.y = -.21; pv.add(m);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(.05, 10, 8), skin); hand.position.y = -.44; pv.add(hand); g.add(pv); return pv; };
   const armL = arm(-1), armR = arm(1);
   const ring = new THREE.Mesh(new THREE.RingGeometry(.34, .42, 32), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .75, side: THREE.DoubleSide, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = .02; g.add(ring);
   const cup = new THREE.Mesh(new THREE.CylinderGeometry(.045, .04, .1, 10), new THREE.MeshStandardMaterial({ color: 0xffffff })); cup.position.set(0, -.44, -.03); cup.visible = false; armR.add(cup);
   dress({ g, head, torso, mat }, look);
-  return { g, hips, torso, head, armL, armR, ring, cup, mats };
+  const height = Math.min(1.15, Math.max(.85, Number(look.height) || 1)); g.scale.setScalar(height);
+  return { g, hips, torso, head, armL, armR, legL, legR, eyes, height, ring, cup, mats };
+}
+// Blink about every 4 s (offset per person); called every frame from animate().
+function blink(p, t, ph) { if (!p.eyes) return; const s = (t + ph * 3) % 4.2 < .13 ? .12 : 1; for (const e of p.eyes) e.scale.y = s; }
+// Legs swing opposite to the arms while walking (the trailing knee bends); knees bend 90° when seated.
+function poseLegs(p, swing, seated) {
+  if (!p.legL) return;
+  p.legL.rotation.x = -swing; p.legR.rotation.x = swing;
+  const k = seated ? -Math.PI / 2 : -Math.abs(swing) * .6;
+  p.legL.userData.knee.rotation.x = seated || swing > 0 ? k : 0;
+  p.legR.userData.knee.rotation.x = seated || swing < 0 ? k : 0;
 }
 // Hair and accessories. The face looks toward -z.
 function dress({ g, head, torso, mat }, look) {
@@ -742,6 +772,11 @@ function dress({ g, head, torso, mat }, look) {
   if (extra.has('cape')) add(g, new THREE.BoxGeometry(.5, .78, .03), mat(look.capeColor || 0xf2f2ee, .8), 0, .7, .22, -.08);
   if (extra.has('cloak')) { const cl = mat(0x16171d, .8); add(g, new THREE.CylinderGeometry(.22, .3, .8, 12), cl, 0, .68, 0);
     for (const [x, y, z] of [[.12, .8, .2], [-.15, .55, .22], [.18, .5, -.2], [-.1, .85, -.21]]) add(g, new THREE.SphereGeometry(.05, 8, 6), mat(0xc0282d, .7), x, y, z).scale.set(1.4, .8, .4); }
+  if (look.glasses) { const gm = mat(typeof look.glasses === 'string' ? look.glasses : 0x2b2f38, .3);
+    for (const sx of [-1, 1]) add(head, new THREE.TorusGeometry(.034, .006, 6, 16), gm, sx * .05, .03, -.158);
+    add(head, new THREE.BoxGeometry(.034, .006, .006), gm, 0, .035, -.16); }
+  if (look.badge) { add(g, new THREE.BoxGeometry(.07, .09, .012), mat(0xf6f7f9, .4), .1, .95, -.205);
+    add(g, new THREE.BoxGeometry(.07, .022, .014), mat(typeof look.badge === 'string' ? look.badge : 0x3a6fd8, .5), .1, .985, -.206); }
   if (extra.has('gourd')) { const gd = mat(0xb68a5a, .7); add(g, new THREE.SphereGeometry(.15, 12, 10), gd, .04, .72, .24); add(g, new THREE.SphereGeometry(.1, 12, 10), gd, -.02, .98, .24); }
 }
 function setFaded(p, faded) { for (const m of p.mats) { m.transparent = faded; m.opacity = faded ? .42 : 1; m.depthWrite = !faded; } p.ring.visible = !faded; }
@@ -1012,6 +1047,7 @@ function renderLegend() {
 const clock = new THREE.Clock();
 function animate(ag, dt, t) {
   const p = ag.p, ph = ag.phase;
+  blink(p, t, ph);
   if (ag.walking) {
     if (!ag.path.length) { arrive(ag, ag.target); }
     else {
@@ -1021,6 +1057,7 @@ function animate(ag, dt, t) {
       const sw = Math.sin(t * 9 + ph);
       p.g.position.y = Math.abs(sw) * .035; p.hips.rotation.x = 0;
       p.armL.rotation.set(sw * .55, 0, 0); p.armR.rotation.set(-sw * .55, 0, 0); p.head.rotation.set(0, 0, 0); p.torso.scale.y = 1; p.cup.visible = false;
+      poseLegs(p, sw * .5, false);
       return;
     }
   }
@@ -1034,7 +1071,7 @@ function animate(ag, dt, t) {
     } else if (ag.standing) { ag.standing = false; }
   }
   p.g.position.y = ag.seated ? -.04 : 0;
-  p.hips.rotation.x = ag.seated ? Math.PI / 2 : 0;
+  p.hips.rotation.x = ag.seated ? Math.PI / 2 : 0; poseLegs(p, 0, ag.seated);
   p.head.rotation.set(0, 0, 0); p.armL.rotation.set(0, 0, 0); p.armR.rotation.set(0, 0, 0); p.torso.scale.y = 1;
   const m = ag.ov ? ag.ov.steps[ag.ov.i].anim : ag.mode === 'rest' ? (ag.restPhase === 'device' ? 'use' : 'sip') : ag.mode;
   p.cup.visible = m === 'sip';
@@ -1084,7 +1121,7 @@ renderer.setAnimationLoop(() => {
     animate(ag, dt, t);
     const gp = ag.p.g.position;
     ag.label.spr.visible = showNames;
-    ag.label.spr.position.set(gp.x, (ag.seated && !ag.walking ? 1.4 : 1.65) + (ag.lift || 0), gp.z);
+    ag.label.spr.position.set(gp.x, (ag.seated && !ag.walking ? 1.4 : 1.65) * (ag.p.height || 1) + (ag.lift || 0), gp.z);
     const s = camera.aspect < 1 ? .085 : .11; ag.label.spr.scale.set(s, s / 4, 1);
     const bb = ag.bubble; if (bb.spr.visible && t > bb.until) bb.spr.visible = false;
     if (bb.spr.visible) { bb.spr.position.copy(ag.label.spr.position); bb.spr.center.y = showNames ? -.75 : 0; bb.spr.scale.set(s * 2, s * 2 * 96 / 512, 1); }

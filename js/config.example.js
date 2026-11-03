@@ -17,8 +17,9 @@ window.AGENT_OFFICE_CONFIG = {
 
   // （可省略）代理人暱稱與 3D 外觀，以 email＋TEAM 對應；沒列到的顯示 email 的 @ 前段。
   // look：hair 髮色、style 髮型（short / spiky / long / ponytail / lowtail / twintail / bun）、shirt 衣服顏色、
-  //   skin 膚色、extra 配件（headband 護額、mask 面罩、vest 背心、cape 披風、cloak 長袍、gourd 背葫蘆、hairband 髮帶）。
+  //   skin 膚色、pants 褲子、shoes 鞋子、eyes 眼睛、brows 眉毛、glasses 眼鏡、badge 識別證（true 或顏色）、height 身高倍率（0.85～1.15）。
+  //   另有 extra 配件（headband、mask、vest、cape、cloak、gourd、hairband）。全部可省略。
   agents: [
-    // { account: 'someone@example.com', team: 'TeamA', nick: '小明', look: { hair: '#2b2b2b', style: 'short', shirt: '#2f6fa8' } }
+    // { account: 'someone@example.com', team: 'TeamA', nick: '小明', look: { hair: '#2b2b2b', style: 'short', shirt: '#2f6fa8', badge: true } }
   ]
 };

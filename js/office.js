@@ -88,7 +88,8 @@ async function loadGlb(url) {   // binary .glb from the scene repo
 
 // ---------- floor state ----------
 let lib = null, meetMeta = null, pantryMeta = null;   // loaded assets
-let lastMeetings = [], projSig = '';
+let lastMeetings = [], lastProjects = [], projSig = '';
+let meetAssign = new Map();   // meeting_id -> room (B+ or a small meeting room)
 let floor = null;                                   // current built floor
 let layoutSig = '', fittedSig = '', lastPortrait = null;
 const nav = { walk: new Set(), free: (x, z) => nav.walk.has(Math.floor(x / CELL) + ',' + Math.floor(z / CELL)) };
@@ -528,7 +529,7 @@ function drawScreen(scr, ag, t) {
 }
 function drawProjector() {
   const pj = floor && floor.projector; if (!pj) return;
-  const cur = lastMeetings.find(q => q.open) || null, last = lastMeetings[0] || null;
+  const cur = lastMeetings.find(q => q.open && q.id === floor.meeting.meetingId) || null, last = lastMeetings[0] || null;
   const sig = JSON.stringify(cur ? [cur.id, cur.msgs.length, cur.title] : ['none', last && last.id, last && !!last.minutes]); if (sig === projSig) return; projSig = sig;
   const x = pj.ctx; pj.meetingId = cur ? cur.id : last ? last.id : null;
   x.fillStyle = '#f6f8fa'; x.fillRect(0, 0, 1024, 576);
@@ -558,6 +559,86 @@ function drawProjector() {
   pj.tex.needsUpdate = true;
 }
 
+// Meeting rooms 2 & 3 and project offices: a table with chairs, a wall screen, door to the corridor.
+function buildTableRoom(room, opt) {
+  const { x0, y0, w, d } = room, g = new THREE.Group(), dx = x0 + w / 2, south = opt.door === 'S';
+  const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: .8 });
+  const box = (sx, sy, sz, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, -z); g.add(o); return o; };
+  floorPlane(g, x0, y0, x0 + w, y0 + d, opt.color, .16, .002);
+  const doorY = south ? y0 : y0 + d, backY = south ? y0 + d : y0;
+  wall(g, x0, y0, x0, y0 + d); wall(g, x0 + w, y0, x0 + w, y0 + d); wall(g, x0, backY, x0 + w, backY);
+  wall(g, x0, doorY, dx - .6, doorY); wall(g, dx + .6, doorY, x0 + w, doorY);
+  navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3); navRect(dx - .45, doorY - .6, dx + .45, doorY + .6);
+  const sign = textPlane(opt.sign, opt.signColor, Math.min(w - .6, 5), 1.1); sign.position.set(dx, .02, -(south ? y0 + .75 : y0 + d - .75)); g.add(sign);
+  // table + chairs (people sit on both long sides, facing the table)
+  const n = opt.seats || 6, per = Math.ceil(n / 2), tw = Math.max(2.2, per * .85), cy = y0 + d / 2 + (south ? .25 : -.25);
+  const wood = M(0x9b7b57), dark = M(0x39414b), cloth = M(opt.color);
+  box(tw, .06, 1.0, wood, dx, .74, cy); for (const sx of [-tw / 2 + .12, tw / 2 - .12]) box(.08, .72, .8, dark, dx + sx, .36, cy);
+  navRect(dx - tw / 2 - .1, cy - .55, dx + tw / 2 + .1, cy + .55, false);
+  const seats = [];
+  for (let i = 0; i < n; i++) {
+    const side = i < per ? 1 : -1, j = i < per ? i : i - per, cnt = i < per ? per : n - per;
+    const sx = dx + (j - (cnt - 1) / 2) * .85, sy = cy + side * .95;
+    seats.push({ id: room.id + ':seat' + i, type: 'SEAT', position: [sx, sy, 0], yaw_deg: side > 0 ? 180 : 0 });
+    box(.46, .07, .46, cloth, sx, .45, sy); box(.46, .5, .06, cloth, sx, .72, sy + side * .23); box(.05, .42, .05, dark, sx, .22, sy);
+  }
+  // wall screen on the far wall, facing into the room
+  const scr = panel(opt.seats ? 2.2 : 1.8, opt.seats ? 1.24 : 1.0, 768, 432, 0x222a33);
+  scr.mesh.position.set(dx, 1.5, -(south ? y0 + d - .12 : y0 + .12)); if (!south) scr.mesh.rotation.y = Math.PI;
+  scr.mesh.userData.screen = room.kind; scr.mesh.userData.roomId = room.id; g.add(scr.mesh);
+  room.screen = scr; room.sig = '';
+  room.anchors = { seats, door: { id: room.id + ':door', type: 'STAND', position: [dx, south ? y0 - .8 : y0 + d + .8, 0], yaw_deg: 0 } };
+  room.group = g; scene.add(g);
+}
+// Which room a meeting is held in: the biggest open meeting gets B+, the next two the small rooms, the rest share B+.
+function assignMeetRooms() {
+  meetAssign = new Map(); if (!floor) return;
+  const rooms = [floor.meeting, ...(floor.smallMeets || [])];
+  const size = q => (q.agenda && q.agenda.attendees || []).length;
+  const open = lastMeetings.filter(q => q.open).sort((a, b) => size(b) - size(a) || b.lastTs - a.lastTs || (a.id < b.id ? -1 : 1));
+  for (const r of rooms) r.meetingId = null;
+  open.slice(0, rooms.length).forEach((q, i) => { meetAssign.set(q.id, rooms[i]); rooms[i].meetingId = q.id; });
+}
+const meetRoomOf = id => (id && meetAssign.get(id)) || floor.meeting;
+const meetKeyOf = g => g.meetMsg ? meetRoomOf(g.meetMsg.meeting_id).id : '';
+const projKeyOf = g => { const a = actOf(g); return a.project_id && floor && floor.byProject && floor.byProject.has(a.project_id) ? a.project_id : ''; };
+const projRoomOf = g => { const k = projKeyOf(g); return k ? floor.byProject.get(k) : null; };
+// small meeting room screens (which meeting is on) and project office boards (goal, members, progress)
+function drawRoomScreens() {
+  if (!floor) return;
+  for (const r of floor.rooms) {
+    if (!r.screen) continue;
+    const x = r.screen.ctx, W = 768, H = 432;
+    if (r.kind === 'smallmeet') {
+      const q = r.meetingId ? lastMeetings.find(m => m.id === r.meetingId) : null;
+      const sig = JSON.stringify(q ? [q.id, q.title, q.msgs.length] : ['none']); if (sig === r.sig) continue; r.sig = sig;
+      x.fillStyle = '#f6f8fa'; x.fillRect(0, 0, W, H); x.textBaseline = 'middle';
+      x.fillStyle = '#14202b'; x.font = `800 40px ${F}`; x.fillText(r.label, 30, 50);
+      if (q) {
+        x.fillStyle = '#b8700c'; x.beginPath(); x.roundRect(30, 96, 130, 46, 23); x.fill(); x.fillStyle = '#fff'; x.font = `800 26px ${F}`; x.fillText('會議中', 52, 120);
+        x.fillStyle = '#14202b'; x.font = `800 38px ${F}`; wrapText(x, q.title, 700, 2).forEach((l, i) => x.fillText(l, 30, 196 + i * 50));
+        const ag = q.agenda || {}; x.fillStyle = '#566676'; x.font = `500 26px ${F}`;
+        x.fillText(`主持 ${ag.host ? partyName(ag.host) : '—'} · 與會 ${(ag.attendees || []).length} 人 · 發言 ${q.msgs.length} 則`, 30, 330);
+      } else { x.fillStyle = '#7a8794'; x.font = `600 30px ${F}`; x.fillText('目前沒有會議', 30, 200); }
+    } else if (r.kind === 'project') {
+      const pj = lastProjects.find(q => q.id === r.pid);
+      const sig = JSON.stringify(pj || ['none']); if (sig === r.sig) continue; r.sig = sig;
+      x.fillStyle = '#f4f6fd'; x.fillRect(0, 0, W, H); x.textBaseline = 'middle';
+      x.fillStyle = '#4a5bc0'; x.fillRect(0, 0, W, 64); x.fillStyle = '#fff'; x.font = `800 32px ${F}`; x.fillText('專案 · ' + (wrapText(x, pj ? pj.title : '', 560, 1)[0] || ''), 24, 34);
+      if (pj) {
+        x.fillStyle = '#2a3346'; x.font = `500 24px ${F}`; wrapText(x, pj.goal || '', 720, 3).forEach((l, i) => x.fillText(l, 24, 104 + i * 34));
+        x.fillStyle = '#566676'; x.font = `600 24px ${F}`; x.fillText(`負責人 ${pj.lead} · 成員 ${pj.members.length} 人${pj.openMeetings ? ` · 進行中會議 ${pj.openMeetings}` : ''}`, 24, 230);
+        x.font = `500 22px ${F}`; wrapText(x, pj.members.join('、'), 720, 1).forEach(l => x.fillText(l, 24, 268));
+        const frac = pj.total ? pj.done / pj.total : 0;
+        x.fillStyle = '#d9def2'; x.beginPath(); x.roundRect(24, 320, 720, 28, 14); x.fill();
+        x.fillStyle = '#4a5bc0'; x.beginPath(); x.roundRect(24, 320, Math.max(28, 720 * frac), 28, 14); x.fill();
+        x.fillStyle = '#2a3346'; x.font = `700 24px ${F}`; x.fillText(pj.total ? `指令完成 ${pj.done} / ${pj.total}` : '還沒有指令', 24, 384);
+      }
+    }
+    r.screen.tex.needsUpdate = true;
+  }
+}
+
 function clearFloor() {
   if (!floor) return;
   for (const r of floor.rooms) { if (r.group) scene.remove(r.group); (r.extra || []).forEach(o => scene.remove(o)); }
@@ -567,7 +648,7 @@ function clearFloor() {
 }
 
 // Lay out: team offices along the south side of a corridor, meeting room (and the shared room if needed) on the north side.
-function buildFloor(teams, needShared) {
+function buildFloor(teams, needShared, projects = []) {
   clearFloor();
   const D = 7, CORR = 2.6, GAP = .5, rooms = [];
   let x = 0;
@@ -576,8 +657,10 @@ function buildFloor(teams, needShared) {
     rooms.push({ id: 'office:' + t.key, kind: 'office', team: t.key, label: t.label, color: t.color, pods, x0: x, y0: 0, w, d: D, doorSide: 'N' });
     x += w + GAP;
   }
+  for (const pj of projects) { rooms.push({ id: 'proj:' + pj.id, kind: 'project', pid: pj.id, label: pj.title, x0: x, y0: 0, w: 7, d: D }); x += 7 + GAP; }   // 進行中的專案各一間
   const southW = Math.max(x - GAP, 8);
-  const north = [{ id: 'meet', kind: 'meeting', w: 8, d: 6 }, { id: 'pantry', kind: 'pantry', w: 8, d: 6 }, { id: 'studio', kind: 'studio', w: 6, d: 6 }];
+  const north = [{ id: 'meet', kind: 'meeting', w: 8, d: 6 }, { id: 'meet2', kind: 'smallmeet', label: '會議室 2', w: 5.5, d: 6 }, { id: 'meet3', kind: 'smallmeet', label: '會議室 3', w: 5.5, d: 6 },
+    { id: 'pantry', kind: 'pantry', w: 8, d: 6 }, { id: 'studio', kind: 'studio', w: 6, d: 6 }];
   if (needShared) north.push({ id: 'office:__shared', kind: 'office', team: '__shared', label: '共用座位', color: css('--muted') || '#566676', pods: Math.max(1, Math.ceil((needShared + 1) / 4)), d: D, doorSide: 'S' });
   for (const r of north) if (r.kind === 'office') r.w = Math.max(7, 2.2 + r.pods * 3.4 + 1.4);
   const northW = north.reduce((s, r) => s + r.w, 0) + GAP * (north.length - 1);
@@ -590,12 +673,15 @@ function buildFloor(teams, needShared) {
   floorPlane(base, 0, D, W, D + CORR, 0xc9d2d9, 1, .001);
   scene.add(base); floor.extra.push(base);
   navRect(.3, D + .3, W - .3, D + CORR - .3);
-  for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : r.kind === 'studio' ? buildStudio(r) : buildOffice(r);
+  for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : r.kind === 'studio' ? buildStudio(r)
+    : r.kind === 'smallmeet' ? buildTableRoom(r, { door: 'S', color: 0xb88a3e, sign: r.label, signColor: '#a0701f' })
+    : r.kind === 'project' ? buildTableRoom(r, { door: 'N', color: 0x5b6fd6, sign: '專案：' + r.label, signColor: '#4a5bc0', seats: 8 }) : buildOffice(r);
   // corridor waypoints for patrols
   floor.booths = [buildBooth(floor, .25, D, CORR, 1), buildBooth(floor, W - 1.45, D, CORR, -1)];
   floor.corridor = [0.15, 0.4, 0.65, 0.9].map((f, i) => ({ id: 'corr' + i, type: 'STAND', position: [W * f, D + CORR / 2, 0], yaw_deg: 0 }));
   floor.byTeam = new Map(rooms.filter(r => r.kind === 'office').map(r => [r.team, r]));
   floor.meeting = rooms.find(r => r.kind === 'meeting'); floor.pantry = rooms.find(r => r.kind === 'pantry'); floor.studio = rooms.find(r => r.kind === 'studio');
+  floor.smallMeets = rooms.filter(r => r.kind === 'smallmeet'); floor.byProject = new Map(rooms.filter(r => r.kind === 'project').map(r => [r.pid, r]));
   drawProjector(); fit();
 }
 
@@ -727,7 +813,7 @@ function jitter(a, key, r = .45) {
 function targetFor(ag) {
   const k = ag.key, home = homeOf(ag.group), meet = floor.meeting.anchors; release(k);
   switch (ag.mode) {
-    case 'meet': return claim(k, meet.seats) || jitter(meet.door, k, .8);
+    case 'meet': { const mr = meetRoomOf(ag.group.meetMsg && ag.group.meetMsg.meeting_id).anchors; return claim(k, mr.seats) || jitter(mr.door, k, .8); }
     case 'present': return claim(k, meet.stands) || claim(k, home.anchors.board) || deskFor(ag);
     case 'call': { const bs = floor.booths.map(b => b.seat); return claim(k, bs) || jitter(bs[0], k, 1.2); }
     case 'record': { const st = floor.studio && floor.studio.anchors; return st ? claim(k, st.spots) || jitter(st.door, k, .8) : deskFor(ag); }
@@ -751,7 +837,7 @@ function targetFor(ag) {
       } else ag.activity = '';   // just started resting: stay at the desk first, so not everyone heads to the pantry at once
       ag.restPhase = 'desk'; return deskFor(ag);
     }
-    default: return deskFor(ag);
+    default: { const pr = ag.mode === 'work' && projRoomOf(ag.group); return pr ? claim(k, pr.anchors.seats) || jitter(pr.anchors.door, k, .8) : deskFor(ag); }
   }
 }
 function placeAt(ag, a) { const p = B2T(a.position); ag.p.g.position.set(p.x, 0, p.z); ag.path = []; arrive(ag, a); }
@@ -851,7 +937,9 @@ function upsert(g, i) {
     scene.add(p.g); scene.add(label.spr); scene.add(bubble.spr); agents.set(g.key, ag);
     if (firstPlacement) placeAt(ag, targetFor(ag));
     else { const d = B2T(homeOf(g).anchors.door.position); p.g.position.set(d.x, 0, d.z); goTo(ag, targetFor(ag)); }
-  } else { ag.group = g; if (ag.mode !== mode) { ag.mode = mode; if (!ag.ov) goTo(ag, targetFor(ag)); } }   // a viewer action finishes first
+  } else { ag.group = g; const pk = projKeyOf(g);
+    if (ag.mode !== mode || (mode === 'work' && pk !== ag.projKey) || (mode === 'meet' && meetKeyOf(g) !== ag.meetKey)) { ag.mode = mode; if (!ag.ov) goTo(ag, targetFor(ag)); } }   // a viewer action finishes first
+  ag.projKey = projKeyOf(g); ag.meetKey = meetKeyOf(g);
   ag.mode = mode; ag.group = g;
   if (!(g.look && g.look.shirt)) ag.p.mats[0].color.set(color);
   ag.p.ring.material.color.set(color);
@@ -864,7 +952,7 @@ function upsert(g, i) {
 function relabelAll() { if (lib) update(lastGroups, lastOpts); }
 
 function update(groups, opts = {}) {
-  lastGroups = groups; lastOpts = { fresh: opts.fresh || new Set(), active: opts.active !== false }; lastMeetings = opts.meetings || lastMeetings;
+  lastGroups = groups; lastOpts = { fresh: opts.fresh || new Set(), active: opts.active !== false }; lastMeetings = opts.meetings || lastMeetings; lastProjects = opts.projects || lastProjects;
   if (!lib) return;
   // which offices are needed: the configured teams always get a room; everyone else shares one
   const counts = new Map(); let shared = 0;
@@ -873,21 +961,22 @@ function update(groups, opts = {}) {
     const g = groups.find(x => x.teamKey === k);
     return { key: k, label: g && g.team ? g.team.label : k.toUpperCase(), color: g ? colorOf(g) : (css('--muted') || '#888'), count: counts.get(k) || 0 };
   });
-  const sig = JSON.stringify([teams.map(t => [t.key, Math.max(1, Math.ceil((t.count + 1) / 4)), t.color, t.label]), shared ? Math.ceil((shared + 1) / 4) : 0, css('--office-bg')]);
+  const sig = JSON.stringify([teams.map(t => [t.key, Math.max(1, Math.ceil((t.count + 1) / 4)), t.color, t.label]), shared ? Math.ceil((shared + 1) / 4) : 0, css('--office-bg'), lastProjects.map(x => [x.id, x.title])]);
   if (sig !== layoutSig) {
     layoutSig = sig;
     for (const ag of agents.values()) { scene.remove(ag.p.g); scene.remove(ag.label.spr); scene.remove(ag.bubble.spr); }
     closeMenu();
     agents.clear(); deskOf.clear(); held.clear(); firstPlacement = true;
-    buildFloor(teams, shared);
+    buildFloor(teams, shared, lastProjects);
   }
+  assignMeetRooms();
   const keep = new Set(groups.map(g => g.key));
   for (const [k, ag] of agents) if (!keep.has(k)) { scene.remove(ag.p.g); scene.remove(ag.label.spr); scene.remove(ag.bubble.spr); release(k); deskOf.delete(k); agents.delete(k); }
   for (const scr of floor.screens.values()) scr.agent = null;
   groups.forEach((g, i) => upsert(g, i));
   for (const scr of floor.screens.values()) if (!scr.agent && scr.sig !== 'off') drawOff(scr);
   if (groups.length) firstPlacement = false;
-  drawProjector(); renderLegend();
+  drawProjector(); drawRoomScreens(); renderLegend();
 }
 function renderLegend() {
   const counts = {}; for (const ag of agents.values()) counts[ag.mode] = (counts[ag.mode] || 0) + 1;
@@ -902,7 +991,8 @@ function renderLegend() {
   t.onclick = () => { showNames = !showNames; try { localStorage.setItem('cloudlog.names', showNames ? '1' : '0'); } catch {} renderLegend(); };
   legend.append(t);
   if (floor) { const teamRooms = floor.rooms.filter(r => r.kind === 'office' && r.team !== '__shared').length, shared = floor.byTeam.has('__shared');
-    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室 · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''} ＋ B+ 會議／試播室 ＋ 茶水間 ＋ 錄課棚 ＋ 電話亭 · ${agents.size} 位代理人`; }
+    const projRooms = floor.byProject ? floor.byProject.size : 0;
+    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室${projRooms ? ` · ${projRooms} 個專案` : ''} · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''}${projRooms ? ` ＋ ${projRooms} 間專案辦公室` : ''} ＋ 3 間會議室 ＋ 茶水間 ＋ 錄課棚 ＋ 電話亭 · ${agents.size} 位代理人`; }
 }
 
 // ---------- animation ----------
@@ -1098,7 +1188,7 @@ function focusRoom(r) {   // the whole room, seen from the same side as the floo
   flyTo(c, c.clone().addScaledVector(dir, Math.max((across / 2 + .9) / Math.tan(hf / 2), (along / 2 + .9) * .9 / Math.tan(vf / 2))));
 }
 const ROOM_ZH = { meeting: 'B+ 會議／試播室', pantry: '茶水間', studio: '錄課棚' };
-const roomName = r => ROOM_ZH[r.kind] || (r.team === '__shared' ? '共用座位' : r.label + ' 辦公室');
+const roomName = r => ROOM_ZH[r.kind] || (r.kind === 'smallmeet' ? r.label : r.kind === 'project' ? '專案：' + r.label : r.team === '__shared' ? '共用座位' : r.label + ' 辦公室');
 const inRoom = (r, v) => v.x >= r.x0 && v.x <= r.x0 + r.w && -v.z >= r.y0 && -v.z <= r.y0 + r.d;
 const backItem = () => ({ label: '回到全景', cls: 'mut', run: () => fit(true) });
 function roomMenu(r) {
@@ -1119,7 +1209,12 @@ const SCREENS = {
   portrait: { name: '直立副螢幕', sub: '題目卷與解答卷並排對照', w: .36, h: .64, open: null }
 };
 function screenMenu(kind, obj) {
-  const S = SCREENS[kind], f = focusFace(obj, S.w, S.h), items = [];
+  let S = SCREENS[kind];
+  if (kind === 'smallmeet' || kind === 'project') { const r = floor.rooms.find(q => q.id === obj.userData.roomId) || {};
+    S = kind === 'smallmeet' ? { name: (r.label || '會議室') + ' 螢幕', sub: r.meetingId ? '進行中的會議' : '目前沒有會議', w: 1.8, h: 1.0,
+        open: r.meetingId ? ['打開會議紀錄', () => { if (window.cloudlogBridge) window.cloudlogBridge.meetings(r.meetingId); }] : null }
+      : { name: '專案：' + (r.label || ''), sub: '目標、成員與指令進度', w: 2.2, h: 1.24, open: ['打開專案', () => { if (window.cloudlogBridge && window.cloudlogBridge.project) window.cloudlogBridge.project(r.pid); }] }; }
+  const f = focusFace(obj, S.w, S.h), items = [];
   if (S.open) items.push({ label: S.open[0], cls: 'pri', run: S.open[1] });
   items.push(backItem());
   const narrow = camera.aspect < 1;
@@ -1144,6 +1239,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   if (floor.projector) targets.push(floor.projector.mesh);
   if (floor.kanban) targets.push(floor.kanban.mesh, floor.trial.mesh);
   if (floor.portrait) targets.push(floor.portrait.mesh);
+  for (const rm of floor.rooms) if (rm.screen) targets.push(rm.screen.mesh);
   for (const scr of floor.screens.values()) targets.push(...scr.holders);
   for (const dev of floor.devices.values()) targets.push(dev.hit, ...(showNames ? [dev.tag] : []));
   const hit = ray.intersectObjects(targets, true).find(h => h.object.visible || h.object.userData.device);

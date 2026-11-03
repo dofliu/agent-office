@@ -62,11 +62,11 @@ function publicFeed_(feed) {
   const hps = arr => (Array.isArray(arr) ? arr : []).map(hp_).filter(Boolean);
   const rec = o => {
     const acc = o.account || o.email || o['帳號']; if (!acc) return null;
-    return { account: hashAcc_(acc), team: o.team || o.TEAM || o.Team || o['所屬'] || '', last_time: o.last_time || o.time || o.timestamp || o['時間'] || '', topic: '工作紀錄', content: '' };
+    return { account: hashAcc_(acc), team: o.team || o.TEAM || o.Team || o['所屬'] || '', last_time: o.last_time || o.time || o.timestamp || o['時間'] || '', topic: '工作紀錄', content: '', project_id: o.project_id || undefined };
   };
   const meet = o => {
     switch (o.type) {
-      case 'agenda': return { type: 'agenda', meeting_id: o.meeting_id, title: '會議', host: hp_(o.host), attendees: hps(o.attendees), created: o.created, deadline: o.deadline,
+      case 'agenda': return { type: 'agenda', meeting_id: o.meeting_id, title: '會議', host: hp_(o.host), attendees: hps(o.attendees), created: o.created, deadline: o.deadline, project_id: o.project_id || undefined,
         source_request: o.source_request || undefined, requested_by: hp_(o.requested_by) || undefined };
       case 'message': return { type: 'message', meeting_id: o.meeting_id, msg_id: o.msg_id, from: hp_(o.from), time: o.time, reply_to: o.reply_to || null, mentions: [], kind: o.kind, content: '' };
       case 'minutes': return { type: 'minutes', meeting_id: o.meeting_id, by: hp_(o.by), time: o.time, summary: '', decisions: [], actions: [] };
@@ -77,7 +77,11 @@ function publicFeed_(feed) {
   };
   const cmd = o => {
     switch (o.type) {
-      case 'command': return { type: 'command', command_id: o.command_id, to: hp_(o.to), created: o.created, title: '指令', priority: o.priority, needs_approval: !!o.needs_approval, source_meeting: o.source_meeting || null };
+      case 'command': return { type: 'command', command_id: o.command_id, to: hp_(o.to), created: o.created, title: '指令', priority: o.priority, needs_approval: !!o.needs_approval, source_meeting: o.source_meeting || null, project_id: o.project_id || undefined };
+      case 'project': return { type: 'project', project_id: o.project_id, title: '專案', goal: '', lead: hp_(o.lead), members: hps(o.members), created: o.created, deadline: o.deadline || '' };
+      case 'project_status': return { type: 'project_status', project_id: o.project_id, time: o.time, status: o.status, note: '' };
+      case 'project_request': return { type: 'project_request', request_id: o.request_id, from: hp_(o.from), created: o.created, title: '專案請求', lead: hp_(o.lead), members: hps(o.members) };
+      case 'project_decision': return { type: 'project_decision', request_id: o.request_id, time: o.time, decision: o.decision, project_id: o.project_id || null };
       case 'ack': return { type: 'ack', command_id: o.command_id, by: hp_(o.by), time: o.time, status: o.status, note: '' };
       case 'approval': return { type: 'approval', command_id: o.command_id, time: o.time, decision: o.decision };
       default: return null;
@@ -176,7 +180,7 @@ const ACTIONS = {
     const obj = {
       type: 'agenda', meeting_id: id, title: str_(req.title, 60), goal: str_(req.goal, 500),
       agenda: arr_(req.agenda, 12).map(x => str_(x, 120)).filter(Boolean),
-      host: party_(req.host) || attendees[0], attendees: attendees,
+      host: party_(req.host) || attendees[0], attendees: attendees, project_id: pid_(req.project_id),
       created_by: '劉老師（看板）', created: t, deadline: fmt14_(new Date(Date.now() + hours * 3600000))
     };
     return { file: create_(FOLDERS.meetings, '會議_' + id + '_agenda.json', obj) };
@@ -201,7 +205,7 @@ const ACTIONS = {
     const obj = {
       type: 'command', command_id: id, to: to, from: '劉老師（看板）', created: t,
       title: str_(req.title, 40) || str_(req.instruction, 20), instruction: str_(req.instruction, 2000),
-      priority: req.priority === 'high' ? 'high' : 'normal', source_meeting: null,
+      priority: req.priority === 'high' ? 'high' : 'normal', source_meeting: null, project_id: pid_(req.project_id),
       needs_approval: req.needs_approval === true, approval_reason: str_(req.approval_reason, 200)
     };
     return { file: create_(FOLDERS.commands, '指令_' + id + '.json', obj) };
@@ -244,7 +248,7 @@ const ACTIONS = {
         type: 'agenda', meeting_id: mid, title: title, goal: str_(r.goal, 500),
         agenda: arr_(r.agenda, 12).map(x => str_(x, 120)).filter(Boolean),
         host: party_(req.host) || party_(r.host) || from || attendees[0], attendees: attendees,
-        created_by: '劉老師（看板，核准會議請求）', source_request: rid, requested_by: from,
+        created_by: '劉老師（看板，核准會議請求）', source_request: rid, requested_by: from, project_id: pid_(r.project_id),
         created: t, deadline: fmt14_(new Date(Date.now() + hours * 3600000))
       };
       out.meeting = create_(FOLDERS.meetings, '會議_' + mid + '_agenda.json', agenda);
@@ -252,6 +256,51 @@ const ACTIONS = {
     const obj = { type: 'request_decision', request_id: rid, by: { account: 'teacher', team: 'HUMAN', name: '劉老師' }, time: t,
       decision: decision, meeting_id: mid, note: str_(req.note, 300) };
     out.file = create_(FOLDERS.meetings, '會議請求_' + rid + '_decision_' + t + '_' + rand4_() + '.json', obj);
+    return out;
+  },
+
+  // 專案（指令資料夾/專案_<project_id>.json）：名稱、目標、負責人、成員、期限
+  createProject: req => {
+    const members = arr_(req.members, 30).map(party_).filter(Boolean), lead = party_(req.lead) || members[0];
+    if (!str_(req.title, 40) || !lead) throw bad_('需要專案名稱與負責人');
+    if (!members.some(p => p.account === lead.account && (p.team || '') === (lead.team || ''))) members.unshift(lead);
+    return { file: create_(FOLDERS.commands, '專案_' + newPid_() + '.json', projectObj_(req, lead, members, null)) };
+  },
+
+  // 專案狀態（active 進行中／paused 暫停／done 完成），新增一份狀態檔，最新一筆為準
+  setProjectStatus: req => {
+    const pid = pid_(req.project_id); if (!pid) throw bad_('專案編號格式不對');
+    const status = ['active', 'paused', 'done'].indexOf(req.status) >= 0 ? req.status : '';
+    if (!status) throw bad_('status 需為 active、paused 或 done');
+    const t = now14_();
+    const obj = { type: 'project_status', project_id: pid, by: { account: 'teacher', team: 'HUMAN', name: '劉老師' }, time: t, status: status, note: str_(req.note, 300) };
+    return { file: create_(FOLDERS.commands, '專案_' + pid + '_status_' + t + '_' + rand4_() + '.json', obj) };
+  },
+
+  // 老師核准／駁回代理人的專案請求（指令資料夾/專案請求_<request_id>.json），核准時建立專案
+  decideProjectRequest: req => {
+    const rid = str_(req.request_id, 40);
+    if (!/^Q\d{14}[0-9a-z]{4}$/i.test(rid)) throw bad_('請求編號格式不對');
+    const decision = req.decision === 'rejected' ? 'rejected' : req.decision === 'approved' ? 'approved' : '';
+    if (!decision) throw bad_('decision 需為 approved 或 rejected');
+    const folder = DriveApp.getFolderById(FOLDERS.commands);
+    if (folder.searchFiles('title contains "專案請求_' + rid + '_decision"').hasNext()) throw bad_('這個請求已經處理過了');
+    const it = folder.getFilesByName('專案請求_' + rid + '.json');
+    if (!it.hasNext()) throw bad_('找不到這個專案請求');
+    const r = JSON.parse(it.next().getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, ''));
+    const t = now14_(), out = {};
+    let pid = null;
+    if (decision === 'approved') {
+      const from = party_(r.from), members = arr_(r.members, 30).map(party_).filter(Boolean), lead = party_(r.lead) || from || members[0];
+      if (!str_(r.title, 40) || !lead) throw bad_('請求缺專案名稱或負責人');
+      if (!members.some(p => p.account === lead.account && (p.team || '') === (lead.team || ''))) members.unshift(lead);
+      pid = newPid_();
+      out.project = create_(FOLDERS.commands, '專案_' + pid + '.json', projectObj_(r, lead, members, rid));
+      out.project.data.project_id = pid;
+    }
+    const obj = { type: 'project_decision', request_id: rid, by: { account: 'teacher', team: 'HUMAN', name: '劉老師' }, time: t,
+      decision: decision, project_id: pid, note: str_(req.note, 300) };
+    out.file = create_(FOLDERS.commands, '專案請求_' + rid + '_decision_' + t + '_' + rand4_() + '.json', obj);
     return out;
   },
 
@@ -298,6 +347,15 @@ function party_(p) {
   const account = str_(p.account, 120).toLowerCase(); if (!account) return null;
   return { account: account, team: str_(p.team, 40) || null };
 }
+let lastPid_ = '';
+function newPid_() { lastPid_ = 'P' + now14_() + rand4_(); return lastPid_; }
+function projectObj_(src, lead, members, rid) {
+  const days = Math.min(365, Math.max(0, Number(src.days) || 0));
+  return { type: 'project', project_id: lastPid_, title: str_(src.title, 40), goal: str_(src.goal, 500), lead: lead, members: members,
+    created_by: rid ? '劉老師（看板，核准專案請求）' : '劉老師（看板）', source_request: rid || null, requested_by: rid ? party_(src.from) : null,
+    created: now14_(), deadline: days ? fmt14_(new Date(Date.now() + days * 86400000)) : '' };
+}
+const pid_ = v => (/^P\d{14}[0-9a-z]{4}$/i.test(String(v || '')) ? String(v) : null);
 const str_ = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const arr_ = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
 const bad_ = msg => { const e = new Error(msg); e.code = 'bad_request'; return e; };

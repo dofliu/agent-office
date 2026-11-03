@@ -33,7 +33,7 @@
   let manage = false, armedKey = null, armTimer = 0, opBusy = '', opMsg = null, fixTeam = '';
   let adminKey = lsGet(LS_KEY) || '', isAdmin = !!adminKey, adminOpen = false, adminMsg = null, adminBusy = false;
   let readKey = lsGet(LS_READ) || '', readMsg = null, readBusy = false;   // 讀取密碼：Apps Script 設了 READ_KEY 時，沒密碼只拿到公開精簡版
-  let planOpen = false;
+  let planOpen = false, openProj = null, projForm = null, projMsg = null;   // openProj: 'list' 或專案 ID
   let openMeet = null, meetForm = null, teacherMsg = {}, cmdDraft = {}, sendBusy = '', sendMsg = null;
   let syncing = false, lastAttempt = 0, openAccount = null, blocked = false;
   let status = { kind: 'idle', text: '準備中…' };
@@ -63,6 +63,7 @@
       topic: String(o.topic || o['主題'] || '（未填主題）').trim(),
       content: String(o.content || o['內容'] || '').trim(),
       team: String(o.team || o.TEAM || o.Team || o['所屬'] || '').trim(),
+      project_id: o.project_id ? String(o.project_id) : '',
       ts
     };
   }
@@ -168,23 +169,43 @@
       c.view = closed ? c.status : c.gate === 'waiting' ? 'awaiting_approval' : c.gate === 'rejected' ? 'rejected' : c.gate === 'approved' && c.status === 'awaiting_approval' ? 'approved' : c.status;
       return c; })
       .sort((a, b) => b.cmd.ts - a.cmd.ts);
+    // projects (專案_<id>.json) with their status files, and agents' project requests (專案請求_<id>.json)
+    const projs = new Map(), preqs = new Map();
+    const pget = id => { if (!projs.has(id)) projs.set(id, { id, p: null, statuses: [] }); return projs.get(id); };
+    const qget = id => { if (!preqs.has(id)) preqs.set(id, { id, req: null, decisions: [] }); return preqs.get(id); };
+    for (const f of Object.values(state.cfiles)) { const o = f.rec; if (!o) continue;
+      if (o.type === 'project' && o.project_id) pget(o.project_id).p = { ...o, fileId: f.id, ts: tsOf(o.created, f) };
+      else if (o.type === 'project_status' && o.project_id) pget(o.project_id).statuses.push({ ...o, ts: tsOf(o.time, f) });
+      else if (o.type === 'project_request' && o.request_id) qget(o.request_id).req = { ...o, fileId: f.id, ts: tsOf(o.created, f) };
+      else if (o.type === 'project_decision' && o.request_id) qget(o.request_id).decisions.push({ ...o, ts: tsOf(o.time, f) }); }
+    const PORDER = { active: 0, paused: 1, done: 2 };
+    const plist = [...projs.values()].filter(x => x.p).map(x => {
+      x.statuses.sort((a, b) => a.ts - b.ts); const st = x.statuses[x.statuses.length - 1];
+      x.status = st ? st.status : 'active'; x.title = x.p.title || x.id;
+      x.cmds = clist.filter(c => c.cmd.project_id === x.id); x.meetings = mlist.filter(q => q.agenda && q.agenda.project_id === x.id);
+      x.done = x.cmds.filter(c => c.status === 'done').length; x.deadline = parseTime14(x.p.deadline || '');
+      return x; }).sort((a, b) => (PORDER[a.status] - PORDER[b.status]) || (b.p.ts - a.p.ts));
+    const pqlist = [...preqs.values()].filter(r => r.req).map(r => {
+      r.decisions.sort((a, b) => a.ts - b.ts); r.decision = r.decisions[r.decisions.length - 1] || null;
+      r.status = r.decision ? r.decision.decision : 'pending'; return r; }).sort((a, b) => b.req.ts - a.req.ts);
     for (const a of accounts) {
       a.cmds = clist.filter(c => isMe(c.cmd.to, a));
+      a.projects = plist.filter(x => x.status === 'active' && (isMe(x.p.lead, a) || (x.p.members || []).some(q => isMe(q, a))));
       a.pending = a.cmds.filter(c => !['done', 'declined'].includes(c.status)).length;
       a.meetings = mlist.filter(x => x.agenda && (isMe(x.agenda.host, a) || (x.agenda.attendees || []).some(p => isMe(p, a))));
       let best = null;
-      for (const x of mlist) for (const q of x.msgs) if (isMe(q.from, a) && (!best || q.ts > best.ts)) best = { ...q, meetingTitle: x.title };
+      for (const x of mlist) for (const q of x.msgs) if (isMe(q.from, a) && (!best || q.ts > best.ts)) best = { ...q, meetingTitle: x.title, projectId: (x.agenda && x.agenda.project_id) || '' };
       a.lastSay = best;
       a.meetMsg = best && Date.now() - best.ts < 45 * 60e3 ? best : null;
       // newest piece of work: a record, a report on a command, or a meeting message (the 3D office seats people by this)
-      let act = { ts: a.latest.ts, kind: 'rec', topic: a.latest.topic, content: a.latest.content || '' };
+      let act = { ts: a.latest.ts, kind: 'rec', topic: a.latest.topic, content: a.latest.content || '', project_id: a.latest.project_id || '' };
       for (const c of clist) for (const k of c.acks)
-        if (k.ts > act.ts && isMe(k.by, a)) act = { ts: k.ts, kind: 'ack', topic: c.cmd.title || c.id, content: k.note || '', status: k.status };
-      if (best && best.ts > act.ts) act = { ts: best.ts, kind: 'say', topic: best.meetingTitle, content: best.content || '' };
+        if (k.ts > act.ts && isMe(k.by, a)) act = { ts: k.ts, kind: 'ack', topic: c.cmd.title || c.id, content: k.note || '', status: k.status, project_id: c.cmd.project_id || '' };
+      if (best && best.ts > act.ts) act = { ts: best.ts, kind: 'say', topic: best.meetingTitle, content: best.content || '', project_id: best.projectId };
       a.act = act;
     }
     const today = fmtDay.format(Date.now());
-    return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), requests: rlist, pendingReqs: rlist.filter(r => r.status === 'pending'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
+    return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), requests: rlist, pendingReqs: rlist.filter(r => r.status === 'pending'), projects: plist, projReqs: pqlist, pendingProjReqs: pqlist.filter(r => r.status === 'pending'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
   }
 
   // ---------- render ----------
@@ -224,7 +245,8 @@
     stage.hidden = view !== 'bubbles'; officeBox.hidden = view !== 'office';
     for (const b of document.querySelectorAll('.views button')) b.setAttribute('aria-selected', String(b.dataset.view === view));
     if (view === 'bubbles') layoutStage(shown.length); else layoutOffice();
-    try { if (window.cloudlogOffice) window.cloudlogOffice.update(shown, { fresh: freshSet, active: view === 'office', meetings: m.meetings }); } catch (e) { console.error(e); }
+    try { if (window.cloudlogOffice) window.cloudlogOffice.update(shown, { fresh: freshSet, active: view === 'office', meetings: m.meetings,
+      projects: m.projects.filter(x => x.status === 'active').map(x => ({ id: x.id, title: x.title, goal: x.p.goal || '', lead: partyName(x.p.lead), members: (x.p.members || []).map(partyName), done: x.done, total: x.cmds.length, openMeetings: x.meetings.filter(q => q.open).length })) }); } catch (e) { console.error(e); }
 
     if (!shown.length) {
       orbs.clear();
@@ -249,8 +271,10 @@
     if (openMeet && !drawerTyping()) renderMeetDrawer(m);
     if (adminOpen && !drawerTyping()) renderAdminDrawer(m);
     if (planOpen) renderPlanDrawer(m);
+    if (openProj && !drawerTyping()) renderProjDrawer(m);
     const rb = $('readBtn'); if (rb) rb.hidden = !state.public;
-    const ab = $('adminBtn'); if (ab) { const n = isAdmin ? m.awaiting.length + m.pendingReqs.length : 0; ab.textContent = !isAdmin ? '管理登入' : n ? `待核准 ${n}` : '管理模式'; ab.classList.toggle('on', isAdmin); ab.classList.toggle('hot', n > 0); }
+    const ab = $('adminBtn'); if (ab) { const n = isAdmin ? m.awaiting.length + m.pendingReqs.length + m.pendingProjReqs.length : 0; ab.textContent = !isAdmin ? '管理登入' : n ? `待核准 ${n}` : '管理模式'; ab.classList.toggle('on', isAdmin); ab.classList.toggle('hot', n > 0); }
+    const pb = $('projBtn'); if (pb) { const n = m.projects.filter(x => x.status === 'active').length, rq = m.pendingProjReqs.length; pb.textContent = (n ? `專案 ${n}` : '專案') + (rq ? `・請求 ${rq}` : ''); pb.classList.toggle('hot', rq > 0); }
     const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length, rq = m.pendingReqs.length; mb.textContent = (n ? `會議 ${n}` : '會議') + (rq ? `・請求 ${rq}` : ''); mb.classList.toggle('hot', n + rq > 0); }
   }
   // only pause redraws while the viewer is typing or picking; ticking a checkbox must redraw (attendee count, host list)
@@ -263,7 +287,9 @@
     o.style.setProperty('--oh', h + 'px');
   }
   $('meetBtn').addEventListener('click', () => openMeetings('list'));
-  function openPlan() { lastFocus = document.activeElement; adminOpen = false; openAccount = null; openMeet = null; planOpen = true; render(); }
+  if ($('projBtn')) $('projBtn').addEventListener('click', () => openProjects('list'));
+  function openPlan() { lastFocus = document.activeElement; adminOpen = false; openAccount = null; openMeet = null; openProj = null; planOpen = true; render(); }
+  function openProjects(id) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openAccount = null; openMeet = null; openProj = id || 'list'; projMsg = null; render(); }
   if ($('planBtn')) { if (!PLAN) $('planBtn').hidden = true; else $('planBtn').addEventListener('click', openPlan); }
   $('adminBtn').addEventListener('click', openAdmin);
   if ($('readBtn')) $('readBtn').addEventListener('click', openAdmin);
@@ -271,7 +297,7 @@
   $('oFull').addEventListener('click', () => setFocus(!document.body.classList.contains('focus')));
   if (lsGet('cloudlog.focus') === '1') document.body.classList.add('focus');
   for (const b of document.querySelectorAll('.views button')) b.addEventListener('click', () => { view = b.dataset.view; lsSet('cloudlog.view', view); render(); });
-  window.cloudlogBridge = { open: k => openDrawer(k), meetings: id => openMeetings(id), plan: () => openPlan(), refresh: () => render(), name: p => partyName(p) };
+  window.cloudlogBridge = { open: k => openDrawer(k), meetings: id => openMeetings(id), plan: () => openPlan(), project: id => openProjects(id), refresh: () => render(), name: p => partyName(p) };
 
   const MIN_SLOTS = 15;
   function layoutStage(n) {
@@ -324,11 +350,11 @@
 
   // ---------- drawer ----------
   let lastFocus = null;
-  function openDrawer(key) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openMeet = null; sendMsg = null; openAccount = key; freshSet.delete(key); render(); }
-  function openAdmin() { lastFocus = document.activeElement; planOpen = false; openAccount = null; openMeet = null; adminOpen = true; adminMsg = null; render(); }
-  function openMeetings(id) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openAccount = null; openMeet = id || 'list'; sendMsg = null; render(); }
+  function openDrawer(key) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openMeet = null; openProj = null; sendMsg = null; openAccount = key; freshSet.delete(key); render(); }
+  function openAdmin() { lastFocus = document.activeElement; planOpen = false; openAccount = null; openMeet = null; openProj = null; adminOpen = true; adminMsg = null; render(); }
+  function openMeetings(id) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openAccount = null; openProj = null; openMeet = id || 'list'; sendMsg = null; render(); }
   function closeDrawer() {
-    adminOpen = false; planOpen = false; openAccount = null; openMeet = null; meetForm = null; sendMsg = null; manage = false; armedKey = null; opMsg = null; fixTeam = ''; $('drawerHost').replaceChildren();
+    adminOpen = false; planOpen = false; openAccount = null; openMeet = null; openProj = null; projForm = null; meetForm = null; sendMsg = null; manage = false; armedKey = null; opMsg = null; fixTeam = ''; $('drawerHost').replaceChildren();
     if (lastFocus && lastFocus.isConnected) lastFocus.focus();
   }
   // two-step confirm: first click arms the button for 5 s, second click runs it
@@ -491,6 +517,8 @@
     tx.addEventListener('input', () => { d.text = tx.value; });
     const hi = el('input', { id: 'cmdHigh', type: 'checkbox' }); hi.checked = d.high; hi.addEventListener('change', () => { d.high = hi.checked; });
     const ga = el('input', { id: 'cmdGate', type: 'checkbox' }); ga.checked = d.gate; ga.addEventListener('change', () => { d.gate = ga.checked; });
+    const pj = a.projects.length ? el('select', { id: 'cmdProj', 'aria-label': '屬於哪個專案' }, el('option', { value: '' }, '不屬於專案'), ...a.projects.map(x => { const o = el('option', { value: x.id }, '專案：' + x.title); if (x.id === d.project) o.selected = true; return o; })) : null;
+    if (pj) pj.addEventListener('change', () => { d.project = pj.value; });
     const list = a.cmds.slice(0, 5).map(c => cmdItem(c));
     if (!isAdmin) return el('div', { class: 'sect cmdbox' },
       el('h2', {}, '指令', a.pending ? el('span', { class: 'badge' }, `待處理 ${a.pending}`) : null),
@@ -499,7 +527,7 @@
     return el('div', { class: 'sect cmdbox' },
       el('h2', {}, '下指令', a.pending ? el('span', { class: 'badge' }, `待處理 ${a.pending}`) : null),
       el('p', { class: 'hint' }, '指令會存到雲端「指令」資料夾；這個代理人的排程下次執行「雲端會議」時才會看到並回報。'),
-      ti, tx,
+      ti, tx, pj,
       el('div', { class: 'm-row' }, el('label', { class: 'ck', for: 'cmdHigh' }, hi, '急件'),
         el('label', { class: 'ck', for: 'cmdGate', title: '只有對外寄信、公開發布、花錢、以老師名義對外承諾時才需要' }, ga, '需要我核准才執行'),
         el('button', { class: 'btn sm primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => sendCommand(a) }, sendBusy || '送出指令')),
@@ -511,7 +539,7 @@
     if (!d.text.trim()) { sendMsg = { where: a.key, bad: true, text: '請先寫指令內容。' }; render(); return; }
     sendBusy = '送出中…'; sendMsg = null; render();
     try { const r = await api('createCommand', { to: { account: a.account, team: a.team ? a.team.label : null }, title: d.title.trim() || d.text.trim().slice(0, 20), instruction: d.text.trim(), priority: d.high ? 'high' : 'normal',
-        needs_approval: !!d.gate, approval_reason: d.gate ? '老師下指令時勾選「需要我核准才執行」' : '' });
+        needs_approval: !!d.gate, approval_reason: d.gate ? '老師下指令時勾選「需要我核准才執行」' : '', project_id: d.project || null });
       putFile(state.cfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); cmdDraft[a.key] = { title: '', text: '', high: false, gate: false }; sendMsg = { where: a.key, text: '已送出，等它的排程來領取。' }; }
     catch (e) { sendMsg = { where: a.key, ...sendError(e) }; }
     sendBusy = ''; render();
@@ -581,6 +609,7 @@
       ag.goal ? el('p', { class: 'r-content' }, ag.goal) : null,
       (ag.agenda || []).length ? el('ol', { class: 'agenda' }, ...(ag.agenda || []).map(t => el('li', {}, t))) : null,
       ag.source_request ? el('p', { class: 'hint' }, `由 ${partyName(ag.requested_by)} 提出會議請求，老師核准後開會。`) : null,
+      ag.project_id && m.projects.find(q => q.id === ag.project_id) ? el('p', { class: 'hint' }, '屬於專案：', el('button', { class: 'btn sm', type: 'button', onclick: () => openProjects(ag.project_id) }, m.projects.find(q => q.id === ag.project_id).title + ' ›')) : null,
       el('p', { class: 'hint' }, `主持人：${partyName(ag.host)}${ag.host && ag.host.team ? '·' + ag.host.team : ''}　截止：${isNaN(x.deadline) ? '—' : fmtFull.format(x.deadline)}`),
       el('div', { class: 'chiplist' }, ...att.map(p => el('span', { class: 'mchip' + (spoke(p) ? ' open' : '') }, (spoke(p) ? '✓ ' : '') + partyName(p) + (p.team ? '·' + p.team : '')))),
       mins,
@@ -612,6 +641,9 @@
     hostSel.addEventListener('change', () => { f.host = hostSel.value; });
     const hrs = el('select', { id: 'mhrs' }, ...[2, 6, 12, 24, 48, 72].map(h => { const o = el('option', { value: String(h) }, h + ' 小時內'); if (h === f.hours) o.selected = true; return o; }));
     hrs.addEventListener('change', () => { f.hours = Number(hrs.value); });
+    const act = m.projects.filter(x => x.status === 'active');
+    const pj = el('select', { id: 'mproj' }, el('option', { value: '' }, '不屬於專案'), ...act.map(x => { const o = el('option', { value: x.id }, x.title); if (x.id === f.project) o.selected = true; return o; }));
+    pj.addEventListener('change', () => { f.project = pj.value; });
     return el('div', { class: 'form' },
       el('label', { for: 'mt' }, '主題'), inp('mt', '例如：離岸風電課程教材分工', 'title', 40),
       el('label', { for: 'mg' }, '這場會要得到什麼'), area('mg', '例如：決定下週三份教材由誰負責、交付格式', 'goal', 2),
@@ -622,6 +654,7 @@
       el('div', { class: 'chiplist' }, ...who),
       el('label', { for: 'mhost' }, '主持人（負責收尾、寫結論）'), hostSel,
       el('label', { for: 'mhrs' }, '截止'), hrs,
+      act.length ? el('label', { for: 'mproj' }, '屬於哪個專案（可不選）') : null, act.length ? pj : null,
       el('div', { class: 'm-row' }, el('button', { class: 'btn primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => createMeeting(m) }, sendBusy || '建立會議')),
       sendMsg && sendMsg.where === 'form' ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null);
   }
@@ -633,7 +666,7 @@
     const party = k => { const a = m.accounts.find(q => q.key === k); return a ? { account: a.account, team: a.team ? a.team.label : null } : null; };
     sendBusy = '建立中…'; sendMsg = null; render();
     try { const r = await api('createMeeting', { title: f.title.trim(), goal: f.goal.trim(), agenda: f.agenda.split('\n').map(x => x.trim()).filter(Boolean),
-        host: party(f.host || [...f.who][0]), attendees: [...f.who].map(party).filter(Boolean), hours: f.hours });
+        host: party(f.host || [...f.who][0]), attendees: [...f.who].map(party).filter(Boolean), hours: f.hours, project_id: f.project || null });
       putFile(state.mfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); const id = r.file.data.meeting_id; meetForm = null; openMeet = id; sendMsg = { where: id, text: '會議已建立。受邀代理人的排程下次執行時會開始發言。' }; }
     catch (e) { sendMsg = { where: 'form', ...sendError(e) }; }
     sendBusy = ''; render();
@@ -676,6 +709,8 @@
       el('div', { class: 'sect' }, el('h2', {}, '待核准的會議請求', m && m.pendingReqs.length ? el('span', { class: 'badge' }, String(m.pendingReqs.length)) : null),
         el('p', { class: 'hint' }, '代理人想找其他人開會時會提出請求；核准後系統依請求內容開會。'),
         m && m.pendingReqs.length ? el('ul', { class: 'clist' }, ...m.pendingReqs.map(r => reqItem(r, m))) : el('p', { class: 'hint' }, '目前沒有。')),
+      el('div', { class: 'sect' }, el('h2', {}, '待核准的專案請求', m && m.pendingProjReqs.length ? el('span', { class: 'badge' }, String(m.pendingProjReqs.length)) : null),
+        m && m.pendingProjReqs.length ? el('ul', { class: 'clist' }, ...m.pendingProjReqs.map(r => projReqItem(r, m))) : el('p', { class: 'hint' }, '目前沒有。')),
       el('div', { class: 'm-row' }, el('button', { class: 'btn', type: 'button', onclick: () => { isAdmin = false; adminKey = ''; lsDel(LS_KEY); adminMsg = null; render(); } }, '登出管理模式')));
     else {
       const inp = el('input', { id: 'adminPass', type: 'password', autocomplete: 'current-password', placeholder: 'Apps Script 指令碼屬性 ADMIN_KEY 的值' });
@@ -716,6 +751,136 @@
         el('div', { class: 'd-body' }, body, adminMsg ? el('p', { class: 'm-status ' + (adminMsg.bad ? 'bad' : 'ok') }, adminMsg.text) : null)));
     const f = host.querySelector('#adminPass'); if (f && !host.contains(document.activeElement)) f.focus();
   }
+  // ---------- 專案：多人、長期的工作，底下掛指令與會議（指令資料夾/專案_<id>.json）----------
+  const PROJ_ST = { active: ['st-in_progress', '進行中'], paused: ['st-received', '暫停'], done: ['st-done', '完成'] };
+  const PREQ_ST = { pending: ['st-awaiting_approval', '待核准'], approved: ['st-done', '已成立'], rejected: ['st-declined', '已駁回'] };
+  const partyOfKey = (m, k) => { const a = m.accounts.find(q => q.key === k); return a ? { account: a.account, team: a.team ? a.team.label : null } : null; };
+  const chipsOf = list => el('div', { class: 'chiplist' }, ...(list || []).map(p => el('span', { class: 'mchip' }, partyName(p) + (p.team ? '·' + p.team : ''))));
+  function projReqItem(r, m) {
+    const q = r.req, st = PREQ_ST[r.status] || PREQ_ST.pending;
+    const pj = r.decision && r.decision.project_id ? m.projects.find(x => x.id === r.decision.project_id) : null;
+    return el('li', {},
+      el('div', { class: 'c-row' }, el('span', { class: 'st ' + st[0] }, st[1]), el('b', {}, partyName(q.from)), el('b', {}, q.title || '(無標題)'), el('span', { class: 'muted' }, rel(q.ts))),
+      q.reason ? el('p', { class: 'c-note' }, '為什麼要成立：' + q.reason) : null,
+      q.goal ? el('p', { class: 'hint' }, '目標：' + q.goal) : null,
+      chipsOf(q.members),
+      el('p', { class: 'hint' }, `建議負責人：${partyName(q.lead || q.from)}${q.days ? `　預計 ${q.days} 天` : ''}`),
+      pj ? el('div', { class: 'm-row' }, el('button', { class: 'btn sm', type: 'button', onclick: () => { openProj = pj.id; render(); } }, '看這個專案 ›')) : null,
+      isAdmin && r.status === 'pending' ? el('div', { class: 'm-row' },
+        armed('pq:' + r.id, '核准並成立', '確定成立專案？', () => decideProjReq(r, 'approved'), 'btn sm primary'),
+        armed('pr:' + r.id, '駁回', '確定駁回？', () => decideProjReq(r, 'rejected'))) : null,
+      projMsg && projMsg.id === r.id ? el('p', { class: 'm-status ' + (projMsg.bad ? 'bad' : 'ok') }, projMsg.text) : null);
+  }
+  async function decideProjReq(r, decision) {
+    if (!isAdmin) return;
+    try { const res = await api('decideProjectRequest', { request_id: r.id, decision });
+      putFile(state.cfiles, res.file); if (res.project) putFile(state.cfiles, res.project); lsSet(LS_CACHE, JSON.stringify(state));
+      projMsg = { id: r.id, text: decision === 'approved' ? '專案已成立。' : '已駁回。' }; }
+    catch (e) { projMsg = { id: r.id, ...sendError(e) }; }
+    render();
+  }
+  async function setProjStatus(x, status) {
+    if (!isAdmin || sendBusy) return;
+    sendBusy = '更新中…'; render();
+    try { const r = await api('setProjectStatus', { project_id: x.id, status }); putFile(state.cfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state));
+      projMsg = { id: x.id, text: `已改成「${PROJ_ST[status][1]}」。` }; }
+    catch (e) { projMsg = { id: x.id, ...sendError(e) }; }
+    sendBusy = ''; render();
+  }
+  function projRow(x) {
+    const st = PROJ_ST[x.status] || PROJ_ST.active;
+    return el('li', {}, el('button', { class: 'mrow', type: 'button', onclick: () => { openProj = x.id; projMsg = null; render(); } },
+      el('span', { class: 'st ' + st[0] }, st[1]), el('b', {}, x.title),
+      el('span', { class: 'muted' }, `${partyName(x.p.lead)} · ${(x.p.members || []).length} 人 · 指令 ${x.done}/${x.cmds.length}`)));
+  }
+  function projDetail(x, m) {
+    const st = PROJ_ST[x.status] || PROJ_ST.active, p = x.p;
+    const cmds = x.cmds.map(c => cmdItem(c, partyName(c.cmd.to)));
+    const meets = x.meetings.map(q => el('li', {}, el('button', { class: 'mrow', type: 'button', onclick: () => openMeetings(q.id) },
+      el('span', { class: 'st ' + (q.open ? 'st-in_progress' : 'st-done') }, q.open ? '進行中' : '已結束'), el('b', {}, q.title), el('span', { class: 'muted' }, `${q.msgs.length} 則`))));
+    const startMeeting = () => { meetForm = { title: '', goal: '', agenda: '', who: new Set(m.accounts.filter(a => (p.members || []).some(q => isMe(q, a)) || isMe(p.lead, a)).map(a => a.key)), host: '', hours: 24, project: x.id };
+      meetForm.host = (m.accounts.find(a => isMe(p.lead, a)) || {}).key || [...meetForm.who][0] || ''; sendMsg = null; openMeetings('list'); };
+    return el('div', {},
+      el('div', { class: 'c-row' }, el('span', { class: 'st ' + st[0] }, st[1]), el('span', { class: 'muted' }, `建立 ${fmtFull.format(p.ts)}${isNaN(x.deadline) ? '' : '　期限 ' + fmtFull.format(x.deadline)}`)),
+      p.goal ? el('p', { class: 'r-content' }, p.goal) : null,
+      p.source_request ? el('p', { class: 'hint' }, `由 ${partyName(p.requested_by)} 提出專案請求，老師核准後成立。`) : null,
+      el('p', { class: 'hint' }, `負責人：${partyName(p.lead)}${p.lead && p.lead.team ? '·' + p.lead.team : ''}`),
+      chipsOf(p.members),
+      el('h2', {}, `指令（完成 ${x.done}/${x.cmds.length}）`),
+      cmds.length ? el('ul', { class: 'clist' }, ...cmds) : el('p', { class: 'hint' }, '還沒有這個專案的指令。到人物側欄下指令時選這個專案，或開一場專案會議。'),
+      el('h2', {}, `會議（${x.meetings.length}）`),
+      meets.length ? el('ul', { class: 'mlist' }, ...meets) : el('p', { class: 'hint' }, '還沒有這個專案的會議。'),
+      isAdmin ? el('div', { class: 'sect cmdbox' }, el('h2', {}, '管理'),
+        el('div', { class: 'm-row' },
+          x.status !== 'active' ? el('button', { class: 'btn sm primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => setProjStatus(x, 'active') }, '重新進行') : null,
+          x.status === 'active' ? el('button', { class: 'btn sm', type: 'button', onclick: startMeeting }, '開專案會議') : null,
+          x.status === 'active' ? armed('ps:' + x.id, '暫停', '確定暫停？', () => setProjStatus(x, 'paused'), 'btn sm') : null,
+          x.status !== 'done' ? armed('pd:' + x.id, '完成', '確定完成？', () => setProjStatus(x, 'done'), 'btn sm') : null),
+        projMsg && projMsg.id === x.id ? el('p', { class: 'm-status ' + (projMsg.bad ? 'bad' : 'ok') }, projMsg.text) : null) : null);
+  }
+  function projFormView(m) {
+    const f = projForm;
+    const inp = el('input', { id: 'pt', type: 'text', placeholder: '例如：第 10 週互動教材', value: f.title, maxlength: '40' }); inp.addEventListener('input', () => { f.title = inp.value; });
+    const goal = el('textarea', { id: 'pg', rows: '3', placeholder: '要完成什麼、做到什麼程度、成果放哪裡' }); goal.value = f.goal; goal.addEventListener('input', () => { f.goal = goal.value; });
+    const who = m.accounts.map((a, i) => { const id = 'pw' + i; const cb = el('input', { id, type: 'checkbox' }); cb.checked = f.who.has(a.key);
+      cb.addEventListener('change', () => { cb.checked ? f.who.add(a.key) : f.who.delete(a.key); if (!f.who.has(f.lead)) f.lead = [...f.who][0] || ''; render(); });
+      return el('label', { class: 'ck', for: id, title: a.account }, cb, a.nick, el('span', { class: 'team', style: `--hue:${a.team ? a.team.hue : 'var(--t5)'}` }, a.team ? a.team.label : '—')); });
+    const lead = el('select', { id: 'plead' }, ...[...f.who].map(k => { const a = m.accounts.find(q => q.key === k); const o = el('option', { value: k }, a ? `${a.nick} · ${a.team ? a.team.label : ''}` : k); if (k === f.lead) o.selected = true; return o; }));
+    lead.addEventListener('change', () => { f.lead = lead.value; });
+    const days = el('select', { id: 'pdays' }, ...[[0, '不設期限'], [7, '7 天'], [14, '14 天'], [30, '30 天'], [60, '60 天'], [90, '90 天']].map(([v, l]) => { const o = el('option', { value: String(v) }, l); if (v === f.days) o.selected = true; return o; }));
+    days.addEventListener('change', () => { f.days = Number(days.value); });
+    return el('div', { class: 'form' },
+      el('label', { for: 'pt' }, '專案名稱'), inp,
+      el('label', { for: 'pg' }, '目標'), goal,
+      el('div', { class: 'm-row' }, el('span', { class: 'lab' }, `成員（${f.who.size}）`)),
+      el('div', { class: 'chiplist' }, ...who),
+      el('label', { for: 'plead' }, '負責人（追蹤進度、需要時找大家開會）'), lead,
+      el('label', { for: 'pdays' }, '期限'), days,
+      el('div', { class: 'm-row' }, el('button', { class: 'btn primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => createProject(m) }, sendBusy || '建立專案')),
+      sendMsg && sendMsg.where === 'pform' ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null);
+  }
+  async function createProject(m) {
+    const f = projForm; if (!isAdmin || sendBusy) return;
+    const fail = t => { sendMsg = { where: 'pform', bad: true, text: t }; render(); };
+    if (!f.title.trim()) return fail('請填寫專案名稱。');
+    if (!f.who.size) return fail('請至少勾選一位成員。');
+    if (document.activeElement) document.activeElement.blur();
+    sendBusy = '建立中…'; sendMsg = null; render();
+    try { const r = await api('createProject', { title: f.title.trim(), goal: f.goal.trim(), lead: partyOfKey(m, f.lead || [...f.who][0]), members: [...f.who].map(k => partyOfKey(m, k)).filter(Boolean), days: f.days });
+      putFile(state.cfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); projForm = null; openProj = r.file.data.project_id; projMsg = { id: openProj, text: '專案已建立。成員下次排程執行時會看到。' }; }
+    catch (e) { sendMsg = { where: 'pform', ...sendError(e) }; }
+    sendBusy = ''; render();
+  }
+  function renderProjDrawer(m) {
+    const host = $('drawerHost'), scroll = host.querySelector('.d-body')?.scrollTop || 0;
+    const closeBtn = el('button', { class: 'close', type: 'button', 'aria-label': '關閉', onclick: closeDrawer }, '×');
+    const x = openProj !== 'list' ? m.projects.find(q => q.id === openProj) : null;
+    let body;
+    if (projForm && isAdmin) body = projFormView(m);
+    else if (x) body = projDetail(x, m);
+    else {
+      const reqs = m.projReqs.filter(r => r.status === 'pending' || Date.now() - (r.decision ? r.decision.ts : r.req.ts) < 7 * 86400e3).slice(0, 8);
+      body = el('div', {},
+        el('p', { class: 'hint' }, '專案是多人、長期的工作，底下掛指令與會議。成員做專案的工作時，3D 裡會走到這個專案的辦公室。'),
+        publicHint(),
+        isAdmin ? null : loginHint('要建立專案或核准專案請求，'),
+        reqs.length ? el('div', { class: 'sect' }, el('h2', {}, '專案請求', m.pendingProjReqs.length ? el('span', { class: 'badge' }, String(m.pendingProjReqs.length)) : null),
+          el('p', { class: 'hint' }, '代理人覺得某件事需要多人長期合作時提出的。老師核准後才會成立。'),
+          el('ul', { class: 'clist' }, ...reqs.map(r => projReqItem(r, m)))) : null,
+        m.projects.length ? el('ul', { class: 'mlist' }, ...m.projects.map(projRow)) : el('p', { class: 'hint' }, isAdmin ? '還沒有專案。按「建立專案」成立第一個。' : '還沒有專案。'));
+    }
+    host.replaceChildren(
+      el('div', { class: 'scrim', onclick: closeDrawer }),
+      el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'pTitle' },
+        el('div', { class: 'd-head' },
+          x || projForm ? el('button', { class: 'btn sm', type: 'button', onclick: () => { openProj = 'list'; projForm = null; sendMsg = null; render(); } }, '‹ 全部') : null,
+          el('div', { class: 'd-title' }, el('span', { class: 'r-topic', id: 'pTitle' }, projForm ? '建立專案' : x ? x.title : '專案'),
+            el('span', { class: 'sub' }, projForm ? '存成雲端專案檔' : x ? `${(PROJ_ST[x.status] || PROJ_ST.active)[1]} · ${(x.p.members || []).length} 位成員` : `${m.projects.filter(q => q.status === 'active').length} 個進行中`)),
+          el('div', { class: 'd-tools' }, isAdmin && !x && !projForm ? el('button', { class: 'btn sm primary', type: 'button', onclick: () => { projForm = { title: '', goal: '', who: new Set(), lead: '', days: 30 }; sendMsg = null; render(); } }, '建立專案') : null, closeBtn)),
+        el('div', { class: 'd-body' }, body)));
+    host.querySelector('.d-body').scrollTop = scroll;
+    if (!host.contains(document.activeElement)) closeBtn.focus();
+  }
   // ---------- 辦公環境規劃（js/plan.js，整理自會議結論；待老闆裁示）----------
   const APPROVED_ZH = v => v === true ? ['核准', 'st-done'] : v === false ? ['不做', 'st-declined'] : v === 'later' ? ['暫緩', 'st-received'] : ['待裁示', 'st-new'];
   function renderPlanDrawer(m) {
@@ -744,7 +909,7 @@
           el('div', { class: 'm-row' }, mt ? el('button', { class: 'btn sm', type: 'button', onclick: () => openMeetings(P.meetingId) }, '看會議紀錄（' + mt.msgs.length + ' 則發言）') : el('span', { class: 'hint' }, '會議紀錄：' + P.meetingId)))));
     if (!host.contains(document.activeElement)) closeBtn.focus();
   }
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && (openAccount || openMeet || adminOpen || planOpen)) closeDrawer(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && (openAccount || openMeet || adminOpen || planOpen || openProj)) closeDrawer(); });
 
   // ---------- status / notices ----------
   function setStatus(kind, text) {

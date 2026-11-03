@@ -66,12 +66,13 @@ function publicFeed_(feed) {
   };
   const meet = o => {
     switch (o.type) {
-      case 'agenda': return { type: 'agenda', meeting_id: o.meeting_id, title: '會議', host: hp_(o.host), attendees: hps(o.attendees), created: o.created, deadline: o.deadline, project_id: o.project_id || undefined,
+      case 'agenda': return { type: 'agenda', meeting_id: o.meeting_id, title: '會議', host: hp_(o.host), attendees: hps(o.attendees), created: o.created, deadline: o.deadline, project_id: o.project_id || undefined, review: o.review || undefined,
         source_request: o.source_request || undefined, requested_by: hp_(o.requested_by) || undefined };
       case 'message': return { type: 'message', meeting_id: o.meeting_id, msg_id: o.msg_id, from: hp_(o.from), time: o.time, reply_to: o.reply_to || null, mentions: [], kind: o.kind, content: '' };
-      case 'minutes': return { type: 'minutes', meeting_id: o.meeting_id, by: hp_(o.by), time: o.time, summary: '', decisions: [], actions: [] };
+      case 'minutes': return { type: 'minutes', meeting_id: o.meeting_id, by: hp_(o.by), time: o.time, summary: '', decisions: [], actions: (o.actions || []).map(x => ({ to: hp_(x.to), task: '', command_id: x.command_id || null })) };
       case 'meeting_request': return { type: 'meeting_request', request_id: o.request_id, from: hp_(o.from), created: o.created, title: '會議請求', host: hp_(o.host), attendees: hps(o.attendees), hours: o.hours };
       case 'request_decision': return { type: 'request_decision', request_id: o.request_id, time: o.time, decision: o.decision, meeting_id: o.meeting_id || null };
+      case 'minutes_decision': return { type: 'minutes_decision', meeting_id: o.meeting_id, time: o.time, decision: o.decision, note: '', actions: (o.actions || []).map(x => ({ to: hp_(x.to), task: '', command_id: x.command_id })) };
       default: return null;
     }
   };
@@ -180,7 +181,7 @@ const ACTIONS = {
     const obj = {
       type: 'agenda', meeting_id: id, title: str_(req.title, 60), goal: str_(req.goal, 500),
       agenda: arr_(req.agenda, 12).map(x => str_(x, 120)).filter(Boolean),
-      host: party_(req.host) || attendees[0], attendees: attendees, project_id: pid_(req.project_id),
+      host: party_(req.host) || attendees[0], attendees: attendees, project_id: pid_(req.project_id), review: req.review !== false,
       created_by: '劉老師（看板）', created: t, deadline: fmt14_(new Date(Date.now() + hours * 3600000))
     };
     return { file: create_(FOLDERS.meetings, '會議_' + id + '_agenda.json', obj) };
@@ -248,7 +249,7 @@ const ACTIONS = {
         type: 'agenda', meeting_id: mid, title: title, goal: str_(r.goal, 500),
         agenda: arr_(r.agenda, 12).map(x => str_(x, 120)).filter(Boolean),
         host: party_(req.host) || party_(r.host) || from || attendees[0], attendees: attendees,
-        created_by: '劉老師（看板，核准會議請求）', source_request: rid, requested_by: from, project_id: pid_(r.project_id),
+        created_by: '劉老師（看板，核准會議請求）', source_request: rid, requested_by: from, project_id: pid_(r.project_id), review: req.review !== false,
         created: t, deadline: fmt14_(new Date(Date.now() + hours * 3600000))
       };
       out.meeting = create_(FOLDERS.meetings, '會議_' + mid + '_agenda.json', agenda);
@@ -257,6 +258,38 @@ const ACTIONS = {
       decision: decision, meeting_id: mid, note: str_(req.note, 300) };
     out.file = create_(FOLDERS.meetings, '會議請求_' + rid + '_decision_' + t + '_' + rand4_() + '.json', obj);
     return out;
+  },
+
+  // 老師裁示會議結論（議程 review: true 的會議）：approved 照結論的待辦派指令、amended 用老師修正過的待辦派指令、rejected 不派。
+  // 指令由這裡建立（主持人不建），再新增一份 會議_<id>_decision_… 記下裁示與建立的指令。
+  decideMinutes: req => {
+    const mid = str_(req.meeting_id, 40);
+    if (!/^M\d{12}[0-9a-z]{4}$/i.test(mid)) throw bad_('會議編號格式不對');
+    const decision = ['approved', 'amended', 'rejected'].indexOf(req.decision) >= 0 ? req.decision : '';
+    if (!decision) throw bad_('decision 需為 approved、amended 或 rejected');
+    const folder = DriveApp.getFolderById(FOLDERS.meetings);
+    if (folder.searchFiles('title contains "會議_' + mid + '_decision"').hasNext()) throw bad_('這場會議已經裁示過了');
+    const read = name => { const it = folder.getFilesByName(name); return it.hasNext() ? JSON.parse(it.next().getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, '')) : null; };
+    const minutes = read('會議_' + mid + '_minutes.json'); if (!minutes) throw bad_('這場會議還沒有結論');
+    const agenda = read('會議_' + mid + '_agenda.json') || {};
+    if ((minutes.actions || []).some(x => x && x.command_id)) throw bad_('主持人已經派了指令，這場會議不用再裁示');
+    const note = str_(req.note, 500);
+    if (decision === 'rejected' && !note) throw bad_('不通過時請寫原因，主持人會依原因處理');
+    const src = decision === 'amended' ? arr_(req.actions, 20) : decision === 'approved' ? arr_(minutes.actions, 20) : [];
+    const t = now14_(), commands = [];
+    src.forEach((a, i) => {
+      const to = party_(a && a.to), task = str_(a && a.task, 1500); if (!to || !task) return;
+      const id = 'C' + t + rand4_();
+      const obj = { type: 'command', command_id: id, to: to, from: '會議 ' + mid + '（老師核准）', created: t,
+        title: str_(a.title, 40) || task.slice(0, 20), instruction: task + (note ? '\n\n老師補充：' + note : ''),
+        priority: a.priority === 'high' ? 'high' : 'normal', source_meeting: mid, project_id: pid_(agenda.project_id),
+        needs_approval: a.needs_approval === true, approval_reason: str_(a.approval_reason, 200) };
+      commands.push(create_(FOLDERS.commands, '指令_' + id + '.json', obj));
+    });
+    if (decision !== 'rejected' && !commands.length) throw bad_('沒有可以派出的待辦（請確認每一項都有負責人與內容）');
+    const obj = { type: 'minutes_decision', meeting_id: mid, by: { account: 'teacher', team: 'HUMAN', name: '劉老師' }, time: t, decision: decision,
+      note: note, actions: commands.map(c => ({ to: c.data.to, task: c.data.instruction, command_id: c.data.command_id })) };
+    return { file: create_(FOLDERS.meetings, '會議_' + mid + '_decision_' + t + '_' + rand4_() + '.json', obj), commands: commands };
   },
 
   // 專案（指令資料夾/專案_<project_id>.json）：名稱、目標、負責人、成員、期限

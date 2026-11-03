@@ -39,7 +39,7 @@ const STATES = {
   idle:    { label: '閒置',   tok: '--s-idle' }
 };
 const ORDER = ['work', 'meet', 'call', 'present', 'record', 'patrol', 'rest', 'idle'];
-let showNames = true;
+let showNames = true, slowHint = false;
 try { showNames = localStorage.getItem('cloudlog.names') !== '0'; } catch {}
 const teamKey = t => (t || '').replace(/^team\s+/i, '').trim().toLowerCase() || '—';
 
@@ -65,8 +65,16 @@ function classify(g) {
 }
 
 // ---------- three setup ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// 輕量模式（電腦較慢時）：解析度 1 倍、不反鋸齒、每秒最多 24 張、螢幕少更新；設定存在 localStorage，網址加 ?lite=1 也可以
+let LITE = false;
+try { LITE = localStorage.getItem('cloudlog.lite') === '1' || /[?&]lite=1/.test(location.search); } catch {}
+const renderer = new THREE.WebGLRenderer({ antialias: !LITE });
+const pixelRatio = () => LITE ? 1 : Math.min(devicePixelRatio, 2);
+renderer.setPixelRatio(pixelRatio());
+let onScreen = true;   // 捲到看不到 3D 時就不畫
+new IntersectionObserver(es => { onScreen = es.some(e => e.isIntersecting); }).observe(box);
+let lastFrame = 0;
+const slow = { t0: 0, n: 0, shown: false };   // 開頭幾秒量一下每秒張數，太慢就提示輕量模式
 box.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
@@ -990,6 +998,11 @@ function renderLegend() {
   const t = document.createElement('button'); t.type = 'button'; t.textContent = showNames ? '隱藏名牌' : '顯示名牌';
   t.onclick = () => { showNames = !showNames; try { localStorage.setItem('cloudlog.names', showNames ? '1' : '0'); } catch {} renderLegend(); };
   legend.append(t);
+  const lt = document.createElement('button'); lt.type = 'button'; lt.textContent = LITE ? '一般畫質' : (slowHint ? '畫面慢？試試輕量模式' : '輕量模式');
+  lt.title = '輕量模式：降低解析度與更新頻率，較慢的電腦也順暢'; if (slowHint && !LITE) lt.classList.add('hot');
+  lt.onclick = () => { LITE = !LITE; slowHint = false; try { localStorage.setItem('cloudlog.lite', LITE ? '1' : '0'); } catch {}
+    renderer.setPixelRatio(pixelRatio()); resize(); renderLegend(); };
+  legend.append(lt);
   if (floor) { const teamRooms = floor.rooms.filter(r => r.kind === 'office' && r.team !== '__shared').length, shared = floor.byTeam.has('__shared');
     const projRooms = floor.byProject ? floor.byProject.size : 0;
     info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室${projRooms ? ` · ${projRooms} 個專案` : ''} · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''}${projRooms ? ` ＋ ${projRooms} 間專案辦公室` : ''} ＋ 3 間會議室 ＋ 茶水間 ＋ 錄課棚 ＋ 電話亭 · ${agents.size} 位代理人`; }
@@ -1043,8 +1056,12 @@ function animate(ag, dt, t) {
   if (ag.wait !== Infinity) { ag.wait -= dt; if (ag.wait <= 0) { if (ag.ov) nextStep(ag); else goTo(ag, targetFor(ag)); } }
 }
 renderer.setAnimationLoop(() => {
+  const nowMs = performance.now(); if (LITE && nowMs - lastFrame < 1000 / 24) return;   // skip before getDelta so no time is lost
+  lastFrame = nowMs;
   const dt = Math.min(clock.getDelta(), .1);
-  if (document.hidden || box.hidden || !box.clientWidth) return;
+  if (document.hidden || box.hidden || !box.clientWidth || !onScreen) return;
+  if (!LITE && !slow.shown) { if (!slow.t0) slow.t0 = nowMs; slow.n++;
+    if (nowMs - slow.t0 > 5000) { slow.shown = true; if (slow.n / ((nowMs - slow.t0) / 1000) < 22) { slowHint = true; renderLegend(); } } }
   const t = clock.elapsedTime;
   if (floor) for (const dev of floor.devices.values()) {
     if (dev.runUntil && t >= dev.runUntil) { dev.runUntil = 0; devSay(dev, dev.info.done || '好了'); }
@@ -1058,7 +1075,7 @@ renderer.setAnimationLoop(() => {
   }
   if (floor) for (const r of floor.rooms) if (r.anchors && r.anchors.seats) for (const st of r.anchors.seats) if (st.rig) {
     const scr = floor.screens.get(st.id), ag = scr && scr.agent; st.rig.target = ag && ag.standing ? LIFT : 0; updateLift(st, dt); }
-  if (floor && t - (floor.scrT || 0) > .5) { floor.scrT = t; for (const scr of floor.screens.values()) if (scr.agent) { drawScreen(scr, scr.agent, t); drawSecond(scr, scr.agent); }
+  if (floor && t - (floor.scrT || 0) > (LITE ? 2 : .5)) { floor.scrT = t; for (const scr of floor.screens.values()) if (scr.agent) { drawScreen(scr, scr.agent, t); drawSecond(scr, scr.agent); }
     drawKanban(); drawTrial(t);
     for (const b of floor.booths || []) { const dev = floor.devices.get(b.seat.id); setBoothLamp(b, held.has(b.seat.id) || !!(dev && (dev.runUntil > t || deviceUser(dev)))); }
     if (floor.studio) { const inside = ag => !ag.walking && ((ag.ov ? ag.ov.steps[ag.ov.i].anim === 'record' : ag.mode === 'record'));

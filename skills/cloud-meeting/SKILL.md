@@ -47,10 +47,11 @@ description: "當使用者或排程說「雲端會議」「檢查會議室」「
   "created_by": "劉老師（看板）",
   "created": "20261102203000",
   "deadline": "20261103203000",
-  "project_id": null
+  "project_id": null,
+  "review": true
 }
 ```
-`meeting_id` = `M` + 建立時間到分（12 位）+ 4 位隨機英數。`project_id`（可省略）：這場會議屬於哪個專案。
+`meeting_id` = `M` + 建立時間到分（12 位）+ 4 位隨機英數。`project_id`（可省略）：這場會議屬於哪個專案。`review`（可省略）：`true` 表示**結論要老師裁示後才執行**，主持人不派指令（見 B）。
 
 ### 2. 發言（會議室）
 檔名 `會議_<meeting_id>_msg_<time>_<4位隨機>.json`。
@@ -85,6 +86,22 @@ description: "當使用者或排程說「雲端會議」「檢查會議室」「
   "actions": [{"to": {"account": "y@gmail.com", "team": "DofGM"}, "task": "要做的事", "command_id": "C20261103090000x7y8"}]
 }
 ```
+
+### 3b. 老師裁示結論（會議室）
+檔名 `會議_<meeting_id>_decision_<time>_<4位隨機>.json`。只有老師從看板建立，代理人**不可自己建立**。
+```json
+{
+  "type": "minutes_decision",
+  "meeting_id": "M202611022030ab12",
+  "by": {"account": "teacher", "team": "HUMAN", "name": "劉老師"},
+  "time": "20261103100000",
+  "decision": "approved",
+  "note": "老師的補充或不通過的原因",
+  "actions": [{"to": {"account": "y@gmail.com", "team": "DofGM"}, "task": "要做的事", "command_id": "C20261103100000x7y8"}]
+}
+```
+`decision`：`approved` 照結論執行、`amended` 老師修正後執行（以這份檔的 `actions` 為準）、`rejected` 不通過（`note` 寫原因）。
+核准時看板已經替每一項待辦建好指令，負責的人照一般指令處理即可。
 
 ### 4. 指令（指令資料夾）
 檔名 `指令_<command_id>.json`。由老師（看板）或會議主持人建立。
@@ -253,7 +270,11 @@ description: "當使用者或排程說「雲端會議」「檢查會議室」「
 符合任一條件就寫結論並結束會議：
 - 所有與會者都發言過，而且最近一輪沒有新的提問或反對。
 - 已過 `deadline`。
-寫結論時：整理 `summary`、`decisions`，把需要有人去做的事寫進 `actions`，並**為每一項 action 在指令資料夾另外建立一份指令檔**（`from` 填 `會議 <meeting_id> 主持人 <我的 account>`，`source_meeting` 填會議 ID），再把 `command_id` 填回 `actions`。
+寫結論時：整理 `summary`、`decisions`，把需要有人去做的事寫進 `actions`（每項寫清楚 `to` 與 `task`）。接著看議程的 `review`：
+- **`review` 是 `true`**（看板開的會議預設如此）：**不要建立指令**，`actions` 不填 `command_id`，`summary` 最後註明「待老師裁示」。
+  老師在看板按「核准執行」或「修正後核准」時，看板會替每一項建好指令；之後我只要照一般指令處理交給我的部分。
+  我是主持人時，之後每次執行用 `title contains '<meeting_id>_decision'` 查裁示：`rejected` → 依 `note` 的原因處理一次（例如提出帶相同與會者的會議請求重新討論，或照原因修正後寫工作紀錄說明），不要重複處理；`approved`／`amended` → 不用再做什麼。
+- **沒有 `review`（或是 `false`）**：照舊**為每一項 action 在指令資料夾另外建立一份指令檔**（`from` 填 `會議 <meeting_id> 主持人 <我的 account>`，`source_meeting` 填會議 ID），再把 `command_id` 填回 `actions`。
 - `to` 一律從議程的 `host`／`attendees` **原樣複製** `account` 與 `team`，不可自己重打（避免拼錯，對方會收不到）。
 - 議程的 `goal` 或 `agenda` 若已指定「決議後由誰執行什麼」，照指定的人派指令。
 - 議程有 `project_id` 時，每份指令都帶同一個 `project_id`。

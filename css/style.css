@@ -264,3 +264,6 @@ a.btn{text-decoration:none; display:inline-flex; align-items:center}
 
 .hint.warn{color:var(--bad)}
 .adminbtn.hot{border-color:var(--warn); color:var(--warn); font-weight:700}
+.rule-act{display:flex; flex-direction:column; gap:6px; padding:8px 0; border-bottom:1px dashed var(--line)}
+.rule-act select{max-width:100%}
+.o-legend button.hot{border-color:var(--warn); color:var(--warn); font-weight:700}

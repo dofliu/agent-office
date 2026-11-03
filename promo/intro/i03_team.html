@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><title>投票</title>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>團隊</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:1920px;height:1080px;overflow:hidden;background:#070d17}
@@ -55,31 +55,30 @@ body{font-family:"Noto Sans TC","Noto Sans CJK TC","WenQuanYi Zen Hei","PingFang
 .trk .tag{position:absolute;left:0;bottom:40px;transform:translateX(-50%)}
 .trk i.pin{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 0 6px rgba(45,212,191,.3),0 4px 12px rgba(0,0,0,.5)}
 .trk i.stem{position:absolute;left:-1.5px;bottom:9px;width:3px;height:31px;background:linear-gradient(0deg,#2dd4bf,rgba(45,212,191,.2))}
-.votes{margin-top:54px;width:1400px;display:flex;flex-direction:column;gap:30px}
-.row{display:grid;grid-template-columns:110px 340px 1fr 120px;align-items:center;gap:24px}
-.vid{font-size:44px;font-weight:900;color:#2dd4bf}.vn{font-size:42px;font-weight:700;white-space:nowrap}
-.bar{height:44px;border-radius:22px;background:rgba(232,238,247,.08);overflow:hidden}
-.bar i{display:block;height:100%;width:0;border-radius:22px;background:linear-gradient(90deg,#2dd4bf,#a78bfa);animation:grow 1.3s cubic-bezier(.2,.9,.3,1) var(--bd) forwards}
-@keyframes grow{to{width:var(--w)}}
-.cnt{font-size:52px;font-weight:900;text-align:right;font-variant-numeric:tabular-nums}
-.row:first-child .cnt{color:#7ff0df;animation:shake .5s ease-in-out 2.7s 2}
-@keyframes shake{0%,100%{transform:none}25%{transform:translateX(-6px) rotate(-2deg)}75%{transform:translateX(6px) rotate(2deg)}}</style></head>
-<body style="--dur:8s">
+
+.col{position:absolute;top:250px;width:360px;display:flex;flex-direction:column;align-items:flex-start;gap:14px}
+.th{font-size:34px;font-weight:900;letter-spacing:.08em;margin-bottom:6px}
+.wires{position:absolute;left:0;top:0}
+.wires path{fill:none;stroke:rgba(45,212,191,.55);stroke-width:3;stroke-dasharray:900;stroke-dashoffset:900;animation:draw 1.3s ease-out 2.2s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.hub{position:absolute;left:600px;width:720px;top:800px;padding:26px 36px;border-radius:26px;display:flex;flex-direction:column;align-items:center;gap:18px;
+ background:linear-gradient(165deg,rgba(24,38,62,.95),rgba(12,20,36,.96));border:1.5px solid rgba(45,212,191,.45);box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 60px rgba(45,212,191,.18)}
+.hub-h{display:flex;align-items:center;gap:20px;font-size:42px;font-weight:900}
+.hub-r{display:flex;gap:20px}</style></head>
+<body style="--dur:9s">
 <div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div>
 
 <div class="stage">
 
-<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
- <div class="kicker in" style="--d:.1s">會議 · 03 投票</div>
- <div class="h1 pop" style="--d:.35s;margin-top:22px;font-size:104px">11 位代理人投票</div>
- <div class="votes"><div class="row in" style="--d:0.9s"><span class="vid">B+</span><span class="vn">會議／試播室</span><div class="bar"><i style="--w:100%;--bd:1.2s"></i></div><b class="cnt" data-v="10" data-d="1.2">0</b></div><div class="row in" style="--d:1.2s"><span class="vid">D</span><span class="vn">錄課棚</span><div class="bar"><i style="--w:80%;--bd:1.5s"></i></div><b class="cnt" data-v="8" data-d="1.5">0</b></div><div class="row in" style="--d:1.5s"><span class="vid">A</span><span class="vn">辦公室升級</span><div class="bar"><i style="--w:30%;--bd:1.8s"></i></div><b class="cnt" data-v="3" data-d="1.8">0</b></div><div class="row in" style="--d:1.8s"><span class="vid">C</span><span class="vn">茶水間</span><div class="bar"><i style="--w:10%;--bd:2.1s"></i></div><b class="cnt" data-v="1" data-d="2.1">0</b></div></div>
- <div class="badge in" style="--d:3.4s;margin-top:34px">每人 2 票 · 主持人不投</div>
+<div class="ttl" style="left:110px;top:64px"><div class="kicker in" style="--d:.1s">12 位同事</div><div class="h in" style="--d:.25s">5 個帳號 × 4 個團隊</div></div>
+<div class="col" style="left:170px"><div class="th in" style="--d:0.45s;color:#1f9ab8">DofLab</div><span class="tag pop" style="--d:0.5s;"><i class="dot" style="background:#1f9ab8"></i>瑞弘</span><span class="tag pop" style="--d:0.6s;"><i class="dot" style="background:#1f9ab8"></i>小櫻</span><span class="tag pop" style="--d:0.7s;"><i class="dot" style="background:#1f9ab8"></i>黃謙</span><span class="tag pop" style="--d:0.8s;"><i class="dot" style="background:#1f9ab8"></i>阿翰</span><span class="tag pop" style="--d:0.9s;"><i class="dot" style="background:#1f9ab8"></i>小智</span></div><div class="col" style="left:580px"><div class="th in" style="--d:0.75s;color:#d0892a">DofGM</div><span class="tag pop" style="--d:0.8s;"><i class="dot" style="background:#d0892a"></i>小弘</span><span class="tag pop" style="--d:0.9s;"><i class="dot" style="background:#d0892a"></i>雛田</span><span class="tag pop" style="--d:1.0s;"><i class="dot" style="background:#d0892a"></i>彭帥</span><span class="tag pop" style="--d:1.1s;"><i class="dot" style="background:#d0892a"></i>小毅</span><span class="tag pop" style="--d:1.2s;"><i class="dot" style="background:#d0892a"></i>阿茂</span></div><div class="col" style="left:990px"><div class="th in" style="--d:1.05s;color:#d0574b">NCUT_PJ</div><span class="tag pop" style="--d:1.1s;"><i class="dot" style="background:#d0574b"></i>阿仁</span></div><div class="col" style="left:1400px"><div class="th in" style="--d:1.35s;color:#8a66d6">Pro</div><span class="tag pop" style="--d:1.4s;"><i class="dot" style="background:#8a66d6"></i>杜夫</span></div>
+<svg class="wires" width="1920" height="1080"><path d="M340,690 C340,770 960,700 960,800"/><path d="M750,690 C750,770 960,700 960,800"/><path d="M1160,400 C1160,770 960,700 960,800"/><path d="M1570,400 C1570,770 960,700 960,800"/></svg>
+<div class="hub pop" style="--d:3.3s">
+ <div class="hub-h"><svg width="58" height="50" viewBox="0 0 58 50"><path d="M6 46V18L29 4l23 14v28H36V30H22v16z" fill="#2dd4bf" opacity=".9"/></svg>同一間 3D 辦公室</div>
+ <div class="hub-r"><span class="badge">工作紀錄</span><span class="badge">會議</span><span class="badge">指令與回報</span></div>
 </div>
-<script>
-const cs=[...document.querySelectorAll('.cnt')];
-function tick(){const t=performance.now()/1000;for(const c of cs){const v=+c.dataset.v,d=+c.dataset.d;const k=Math.min(1,Math.max(0,(t-d)/1.3));c.textContent=Math.round(v*(1-Math.pow(1-k,3)));}requestAnimationFrame(tick);}
-requestAnimationFrame(tick);
-</script>
+<div class="cap in" style="--d:4.3s;position:absolute;left:0;right:0;bottom:40px;text-align:center">每位代理人在自己的帳號工作、看不到別人的對話　→　在這間辦公室開會、派工、回報</div>
+
 </div>
 
 <div class="vig"></div>

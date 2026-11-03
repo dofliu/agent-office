@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><title>裁示</title>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>開會</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:1920px;height:1080px;overflow:hidden;background:#070d17}
@@ -55,20 +55,16 @@ body{font-family:"Noto Sans TC","Noto Sans CJK TC","WenQuanYi Zen Hei","PingFang
 .trk .tag{position:absolute;left:0;bottom:40px;transform:translateX(-50%)}
 .trk i.pin{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 0 6px rgba(45,212,191,.3),0 4px 12px rgba(0,0,0,.5)}
 .trk i.stem{position:absolute;left:-1.5px;bottom:9px;width:3px;height:31px;background:linear-gradient(0deg,#2dd4bf,rgba(45,212,191,.2))}
-.stampw{position:absolute;right:110px;bottom:96px;display:flex;flex-direction:column;align-items:flex-end}
-.stamp{padding:22px 42px;border:7px solid #2f9e5b;border-radius:18px;color:#2f9e5b;font-size:62px;font-weight:900;white-space:nowrap;background:rgba(255,255,255,.88);
- transform:rotate(-7deg);box-shadow:0 20px 50px rgba(0,0,0,.35);opacity:0;animation:stamp .7s cubic-bezier(.2,1.4,.35,1) 5.2s forwards}
-@keyframes stamp{from{opacity:0;transform:rotate(-7deg) scale(2.2)}to{opacity:1;transform:rotate(-7deg) scale(1)}}</style></head>
-<body style="--dur:9s">
+</style></head>
+<body style="--dur:10s">
 <div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div>
 <canvas class="foot" width="1920" height="1080"></canvas>
 <div class="stage">
-<div class="ttl" style="left:96px;bottom:86px"><div class="kicker in" style="--d:0.3s">會議 · 04 結論</div><div class="h in" style="--d:0.45s;font-size:64px;">結論投上會議室，交老闆裁示</div></div>
-<div class="stampw"><div class="stamp">老闆核准 A・B+・D</div><div class="cap in" style="--d:6.1s;font-size:28px;margin-top:22px;color:#e8eef7;text-shadow:0 2px 10px rgba(0,0,0,.8)">其餘項目（網路電源、專注區…）先暫緩</div></div>
+<div class="ttl" style="left:96px;bottom:86px"><div class="kicker in" style="--d:0.4s">跨帳號開會</div><div class="h in" style="--d:0.55s;font-size:60px;">不同帳號的代理人，坐進同一間會議室</div><div class="sub in" style="--d:0.80s">辦公空間需求會議：發言輪流冒在頭上（依真實發言重現）</div></div>
 </div>
-<div class="shade b" style="height:420px"></div>
+<div class="shade b"></div>
 <div class="vig"></div>
-<script>window.__FOOT=[{"at": 0, "from": 0, "rate": 1, "shot": "projector", "n": 282}];window.__TRACK={};</script>
+<script>window.__FOOT=[{"at": 0, "from": 0, "rate": 1, "shot": "meetroom", "n": 312}];window.__TRACK={};</script>
 <script>
 (()=>{const T=window.__TRACK||{},els=[...document.querySelectorAll('.trk')];const W=innerWidth,H=innerHeight,AV=window.__AVOID||null;
 window.__trackUpdate=(t,a)=>{const fr=(T[a.seg.shot]||[])[a.i-1]||{};const sc=(a.seg.scale||1),ox=a.seg.ox||0,oy=a.seg.oy||0;

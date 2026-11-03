@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><title>狀態</title>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>專案</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:1920px;height:1080px;overflow:hidden;background:#070d17}
@@ -55,16 +55,18 @@ body{font-family:"Noto Sans TC","Noto Sans CJK TC","WenQuanYi Zen Hei","PingFang
 .trk .tag{position:absolute;left:0;bottom:40px;transform:translateX(-50%)}
 .trk i.pin{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 0 6px rgba(45,212,191,.3),0 4px 12px rgba(0,0,0,.5)}
 .trk i.stem{position:absolute;left:-1.5px;bottom:9px;width:3px;height:31px;background:linear-gradient(0deg,#2dd4bf,rgba(45,212,191,.2))}
-.sgrid{position:absolute;left:110px;right:110px;top:300px;display:grid;grid-template-columns:1fr 1fr;gap:26px 80px}
-.srow{display:flex;align-items:center;gap:22px}.srow .tag{font-size:32px;padding:12px 26px;min-width:190px;justify-content:center}
-.arr{font-size:40px;color:#2dd4bf;font-weight:900}.place{font-size:38px;font-weight:700}</style></head>
-<body style="--dur:6s">
+.pjs{position:absolute;left:110px;right:110px;top:320px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:30px}
+.pj{display:flex;flex-direction:column;gap:18px;padding:36px 34px;border-radius:26px;background:rgba(20,32,52,.88);border:1.5px solid rgba(150,200,255,.24);min-height:300px}
+.pj b{font-size:52px;font-weight:900}.pj span{font-size:32px;font-weight:600;line-height:1.5;color:#dbe5ef}</style></head>
+<body style="--dur:8s">
 <div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div>
 
 <div class="stage">
 
-<div class="ttl" style="left:110px;top:64px"><div class="kicker in" style="--d:.1s">自動判斷</div><div class="h in" style="--d:.25s">看工作內容，走到對的地方</div></div>
-<div class="sgrid"><div class="srow in" style="--d:0.60s"><span class="tag " style="--d:0s;"><i class="dot" style="background:#3fbf6a"></i>工作中</span><span class="arr">→</span><span class="place">自己的座位</span></div><div class="srow in" style="--d:0.78s"><span class="tag " style="--d:0s;"><i class="dot" style="background:#efab48"></i>開會</span><span class="arr">→</span><span class="place">B+ 會議室</span></div><div class="srow in" style="--d:0.96s"><span class="tag " style="--d:0s;"><i class="dot" style="background:#e48ac4"></i>通話</span><span class="arr">→</span><span class="place">電話亭</span></div><div class="srow in" style="--d:1.14s"><span class="tag " style="--d:0s;"><i class="dot" style="background:#f0857a"></i>錄製</span><span class="arr">→</span><span class="place">錄課棚</span></div><div class="srow in" style="--d:1.32s"><span class="tag " style="--d:0s;"><i class="dot" style="background:#a68cf4"></i>報告</span><span class="arr">→</span><span class="place">白板前</span></div><div class="srow in" style="--d:1.50s"><span class="tag " style="--d:0s;"><i class="dot" style="background:#3fc1d7"></i>巡檢</span><span class="arr">→</span><span class="place">走廊巡一圈</span></div><div class="srow in" style="--d:1.68s"><span class="tag " style="--d:0s;"><i class="dot" style="background:#88a7dc"></i>休息</span><span class="arr">→</span><span class="place">茶水間</span></div><div class="srow in" style="--d:1.86s"><span class="tag " style="--d:0s;"><i class="dot" style="background:#8a96a3"></i>閒置</span><span class="arr">→</span><span class="place">半透明</span></div></div>
+<div class="ttl" style="left:110px;top:64px"><div class="kicker in" style="--d:.1s">專案</div><div class="h in" style="--d:.25s">跨帳號、跨數天的工作，開一間專案辦公室</div></div>
+<div class="pjs"><div class="pj pop" style="--d:0.70s"><b style="color:#f0b85a">成立</b><span>老師建立，或核准代理人的專案請求</span></div><div class="pj pop" style="--d:1.25s"><b style="color:#7ff0df">進駐</b><span>南側多一間專案辦公室，有專案看板</span></div><div class="pj pop" style="--d:1.80s"><b style="color:#c4b5fd">推進</b><span>成員做專案的事時走過去；看板顯示指令完成度</span></div></div>
+<div class="cap in" style="--d:2.8s;position:absolute;left:110px;right:110px;bottom:120px;font-size:32px">不同團隊、不同帳號的代理人，為同一個目標坐在同一張桌子</div>
+
 </div>
 
 <div class="vig"></div>

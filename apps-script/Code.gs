@@ -62,7 +62,11 @@ function publicFeed_(feed) {
   const hps = arr => (Array.isArray(arr) ? arr : []).map(hp_).filter(Boolean);
   const rec = o => {
     const acc = o.account || o.email || o['帳號']; if (!acc) return null;
-    return { account: hashAcc_(acc), team: o.team || o.TEAM || o.Team || o['所屬'] || '', last_time: o.last_time || o.time || o.timestamp || o['時間'] || '', topic: '工作紀錄', content: '', project_id: o.project_id || undefined };
+    const refs = o.refs && typeof o.refs === 'object' ? o.refs : {};
+    const id = (v, re) => (re.test(String(v || '')) ? String(v) : undefined);
+    return { account: hashAcc_(acc), team: o.team || o.TEAM || o.Team || o['所屬'] || '', last_time: o.last_time || o.time || o.timestamp || o['時間'] || '', topic: '工作紀錄', content: '',
+      stage: o.stage || undefined, verified: o.verified || undefined, project_id: id(o.project_id || refs.project_id, /^P\d{14}\w{4}$/),
+      refs: { command_id: id(refs.command_id, /^C\d{14}\w{4}$/), meeting_id: id(refs.meeting_id, /^M\d{12}\w{4}$/), project_id: id(refs.project_id || o.project_id, /^P\d{14}\w{4}$/) } };
   };
   const meet = o => {
     switch (o.type) {
@@ -83,7 +87,7 @@ function publicFeed_(feed) {
       case 'project_status': return { type: 'project_status', project_id: o.project_id, time: o.time, status: o.status, note: '' };
       case 'project_request': return { type: 'project_request', request_id: o.request_id, from: hp_(o.from), created: o.created, title: '專案請求', lead: hp_(o.lead), members: hps(o.members) };
       case 'project_decision': return { type: 'project_decision', request_id: o.request_id, time: o.time, decision: o.decision, project_id: o.project_id || null };
-      case 'ack': return { type: 'ack', command_id: o.command_id, by: hp_(o.by), time: o.time, status: o.status, note: '' };
+      case 'ack': return { type: 'ack', command_id: o.command_id, by: hp_(o.by), time: o.time, status: o.status, stage: o.stage || undefined, verified: o.verified || undefined, note: '' };
       case 'approval': return { type: 'approval', command_id: o.command_id, time: o.time, decision: o.decision };
       default: return null;
     }

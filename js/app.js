@@ -51,6 +51,25 @@
     if (!m) return NaN;
     return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 8, +m[5], +m[6]); // stored as Taipei time
   }
+  // 工作紀錄的新欄位（stage、progress、next、verified、refs、links）；舊紀錄從 content 的「【類別｜階段】」與編號推回來
+  const STAGE_ZH = { in_progress: '進行中', plan: '方案', draft: '草稿', delivered: '已交付', accepted: '已驗收', blocked: '卡住', declined: '不做' };
+  const STAGE_CLS = { in_progress: 'st-in_progress', plan: 'st-received', draft: 'st-received', delivered: 'st-done', accepted: 'st-done', blocked: 'st-blocked', declined: 'st-declined' };
+  const VER_ZH = { self: '自報', peer: '已複核', teacher: '老師確認', none: '未驗證' };
+  const STAGE_FROM_ZH = { 進行中: 'in_progress', 方案: 'plan', 規劃: 'plan', 草稿: 'draft', 初版: 'draft', 已交付: 'delivered', 交付: 'delivered', 完成: 'delivered', 已驗收: 'accepted', 驗收: 'accepted', 卡住: 'blocked', 阻礙: 'blocked' };
+  const ID_RE = { command_id: /\bC\d{14}[0-9a-z]{4}\b/i, meeting_id: /\bM\d{12}[0-9a-z]{4}\b/i, project_id: /\bP\d{14}[0-9a-z]{4}\b/i };
+  function workFields(o) {
+    const text = String(o.content || o['內容'] || '') + ' ' + String(o.topic || '');
+    const r = o.refs && typeof o.refs === 'object' ? o.refs : {};
+    const refs = {};
+    for (const k of Object.keys(ID_RE)) { const v = r[k] || (k === 'project_id' ? o.project_id : null) || (ID_RE[k].exec(text) || [])[0]; refs[k] = v ? String(v) : ''; }
+    let stage = STAGE_ZH[o.stage] ? o.stage : '';
+    if (!stage) { const m = /【[^｜|】]*[｜|]\s*([^】]+)】/.exec(text); if (m) stage = STAGE_FROM_ZH[m[1].trim()] || ''; }
+    let verified = VER_ZH[o.verified] ? o.verified : (/自報/.test(text) ? 'self' : '');
+    if (stage === 'accepted' && !['peer', 'teacher'].includes(verified)) { stage = 'delivered'; verified = verified || 'self'; }   // 代理人自己不能標已驗收
+    return { stage, verified, progress: String(o.progress || '').trim(), next: String(o.next || '').trim(), refs, project_id: refs.project_id,
+      links: (Array.isArray(o.links) ? o.links : []).map(String).filter(u => /^https?:\/\//.test(u)).slice(0, 5) };
+  }
+  const ACK_STAGE = { received: 'in_progress', in_progress: 'in_progress', awaiting_approval: 'draft', done: 'delivered', blocked: 'blocked', declined: 'declined' };
   function normalizeRec(o, f) {
     if (!o || typeof o !== 'object') return null;
     const account = String(o.account || o.email || o['帳號'] || '').trim().toLowerCase();
@@ -65,7 +84,7 @@
       topic: String(o.topic || o['主題'] || '（未填主題）').trim(),
       content: String(o.content || o['內容'] || '').trim(),
       team: String(o.team || o.TEAM || o.Team || o['所屬'] || '').trim(),
-      project_id: o.project_id ? String(o.project_id) : '',
+      ...workFields(o),
       ts
     };
   }
@@ -205,11 +224,13 @@
       a.lastSay = best;
       a.meetMsg = best && Date.now() - best.ts < 45 * 60e3 ? best : null;
       // newest piece of work: a record, a report on a command, or a meeting message (the 3D office seats people by this)
-      let act = { ts: a.latest.ts, kind: 'rec', topic: a.latest.topic, content: a.latest.content || '', project_id: a.latest.project_id || '' };
+      let act = { ts: a.latest.ts, kind: 'rec', topic: a.latest.topic, content: a.latest.content || '', project_id: a.latest.project_id || '', stage: a.latest.stage || '' };
       for (const c of clist) for (const k of c.acks)
-        if (k.ts > act.ts && isMe(k.by, a)) act = { ts: k.ts, kind: 'ack', topic: c.cmd.title || c.id, content: k.note || '', status: k.status, project_id: c.cmd.project_id || '' };
+        if (k.ts > act.ts && isMe(k.by, a)) act = { ts: k.ts, kind: 'ack', topic: c.cmd.title || c.id, content: k.note || '', status: k.status, project_id: c.cmd.project_id || '', stage: (STAGE_ZH[k.stage] && k.stage) || ACK_STAGE[k.status] || '' };
       if (best && best.ts > act.ts) act = { ts: best.ts, kind: 'say', topic: best.meetingTitle, content: best.content || '', project_id: best.projectId };
+      if (act.stage) act.stageLabel = STAGE_ZH[act.stage];
       a.act = act;
+      a.work = workItems(a, clist);
     }
     const today = fmtDay.format(Date.now());
     return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), awaitingRulings: mlist.filter(x => x.awaitingRuling), requests: rlist, pendingReqs: rlist.filter(r => r.status === 'pending'), projects: plist, projReqs: pqlist, pendingProjReqs: pqlist.filter(r => r.status === 'pending'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
@@ -374,6 +395,36 @@
         armedKey = null; clearTimeout(armTimer); fn();
       } }, on ? armedLabel : label);
   }
+  // 同一件工作的多次更新（工作紀錄＋指令回報）合成一張卡：依指令編號，沒有就依會議編號，再沒有就依主題
+  function workItems(a, clist) {
+    const items = new Map(), get = (key, title) => { if (!items.has(key)) items.set(key, { key, title, events: [] }); return items.get(key); };
+    for (const r of a.list) {
+      const key = r.refs.command_id ? 'C:' + r.refs.command_id : r.refs.meeting_id ? 'M:' + r.refs.meeting_id : 'T:' + r.topic;
+      get(key, r.topic).events.push({ ts: r.ts, src: 'rec', stage: r.stage, verified: r.verified, text: r.progress || r.content, next: r.next, links: r.links, refs: r.refs });
+    }
+    for (const c of clist) for (const k of c.acks) if (isMe(k.by, a)) {
+      const it = get('C:' + c.id, c.cmd.title || c.id); it.title = c.cmd.title || it.title; it.cmd = c;
+      it.events.push({ ts: k.ts, src: 'ack', status: k.status, stage: (STAGE_ZH[k.stage] && k.stage) || ACK_STAGE[k.status] || '', verified: VER_ZH[k.verified] ? k.verified : (/自報/.test(k.note || '') ? 'self' : ''),
+        text: k.note || '', links: (Array.isArray(k.links) ? k.links : []).filter(u => /^https?:\/\//.test(String(u))) });
+    }
+    return [...items.values()].map(it => {
+      it.events.sort((x, y) => x.ts - y.ts); it.last = it.events[it.events.length - 1];
+      const st = [...it.events].reverse().find(e => e.stage); it.stage = st ? st.stage : ''; it.verified = st ? st.verified : '';
+      it.links = [...new Set(it.events.flatMap(e => e.links || []))].slice(-4);
+      it.next = ([...it.events].reverse().find(e => e.next) || {}).next || '';
+      it.turns = []; let prev = ''; for (const e of it.events) if (e.stage && e.stage !== prev) { it.turns.push(e); prev = e.stage; }   // 重要轉折：階段改變的時間點
+      return it; }).sort((x, y) => y.last.ts - x.last.ts);
+  }
+  const stageChip = (stage, verified) => stage ? el('span', { class: 'st ' + (STAGE_CLS[stage] || 'st-new') }, STAGE_ZH[stage] + (verified && verified !== 'none' ? '・' + VER_ZH[verified] : '')) : null;
+  function workCard(it) {
+    const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return '連結'; } };
+    return el('li', { class: 'work' },
+      el('div', { class: 'c-row' }, stageChip(it.stage, it.verified), el('b', {}, it.title), el('span', { class: 'muted' }, rel(it.last.ts) + (it.events.length > 1 ? ` · ${it.events.length} 次更新` : ''))),
+      it.last.text ? el('p', { class: 'r-content' }, it.last.text) : null,
+      it.next && it.next !== '無' ? el('p', { class: 'hint' }, '下一步：' + it.next) : null,
+      it.links.length ? el('div', { class: 'm-row' }, ...it.links.map(u => el('a', { class: 'r-link', href: u, target: '_blank', rel: 'noopener' }, host(u) + ' ↗'))) : null,
+      it.turns.length > 1 ? el('p', { class: 'turns' }, it.turns.map(e => `${fmtFull.format(e.ts).slice(5)} ${STAGE_ZH[e.stage]}`).join(' → ')) : null);
+  }
   function renderDrawer(m) {
     const a = m.accounts.find(x => x.key === openAccount);
     const host = $('drawerHost');
@@ -384,8 +435,8 @@
       return el('li', {},
         el('div', { class: 'when' }, fmtFull.format(r.ts), el('span', {}, '· ' + rel(r.ts)),
           t && teamKey(r.team) !== teamKey(a.latest.team) ? el('span', { class: 'team', style: `--hue:${t.hue}` }, t.label) : null),
-        el('div', { class: 'r-topic' }, r.topic),
-        r.content ? el('p', { class: 'r-content' }, r.content) : el('p', { class: 'r-content none' }, '這筆紀錄沒有填寫內容'),
+        el('div', { class: 'r-topic' }, r.topic, ' ', stageChip(r.stage, r.verified)),
+        r.content ? el('p', { class: 'r-content' }, r.content) : r.progress ? el('p', { class: 'r-content' }, r.progress) : el('p', { class: 'r-content none' }, '這筆紀錄沒有填寫內容'),
         el('div', { class: 'r-actions' },
           isAdmin && r.viewUrl ? el('a', { class: 'r-link', href: r.viewUrl, target: '_blank', rel: 'noopener' }, '開啟原始 JSON ↗') : null,
           manage && isAdmin ? armed('rec:' + r.fileId, '移到垃圾桶', '再按一次確認', () => trashFiles([r.fileId], a.key)) : null)
@@ -429,12 +480,15 @@
         el('div', { class: 'd-body' },
           publicHint(),
           panel,
+          a.work.length ? el('div', { class: 'sect' }, el('h2', {}, '工作進度'),
+            el('p', { class: 'hint' }, '同一件工作（同一條指令或同一個主題）的多次紀錄與回報合成一張卡：最新狀態、成果連結、階段轉折。'),
+            el('ul', { class: 'clist' }, ...a.work.slice(0, 8).map(workCard))) : null,
           commandBox(a),
           a.meetings.length ? el('div', { class: 'sect' }, el('h2', {}, '受邀的會議'),
             el('div', { class: 'chiplist' }, ...a.meetings.slice(0, 6).map(x => el('button', { class: 'mchip' + (x.open ? ' open' : ''), type: 'button', onclick: () => openMeetings(x.id) },
               (x.open ? '● ' : '') + x.title)))) : null,
-          el('h2', {}, `最近 ${Math.min(10, a.list.length)} 筆紀錄`),
-          el('ol', { class: 'tl' }, ...items)))
+          el('details', { class: 'sect' }, el('summary', {}, `原始紀錄（最近 ${Math.min(10, a.list.length)} 筆）`),
+          el('ol', { class: 'tl' }, ...items))))
     );
     host.querySelector('.d-body').scrollTop = scroll;
     if (!host.contains(document.activeElement)) closeBtn.focus();

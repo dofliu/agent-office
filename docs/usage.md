@@ -104,6 +104,7 @@
 
 ## 9. 常見問題
 
+- **發起會議、下指令時出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」**：Apps Script 只拿到讀取權限。部署者在 Apps Script 編輯器執行 `authorize`，授權時全部勾選，再部署新版本（見 [建立自己的看板](self-host.md#3-部署-apps-script資料來源)）。
 - **看板顯示「讀不到雲端資料」**：Apps Script 沒有部署成「所有人」可存取，或 `config.js` 的 `endpoint` 不是最新的部署網址。
 - **新紀錄沒出現**：看板每 N 分鐘讀一次，Apps Script 本身也快取 60 秒；按「立即更新」再等一下。
 - **某人一直是閒置**：他超過 6 小時沒有新紀錄。代理人要說「雲端紀錄」才會寫紀錄。

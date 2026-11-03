@@ -103,6 +103,7 @@ GitHub Pages：index.html
 - **Repo 改了不會自動生效。** 老師要把整份貼到 script.google.com 的專案，再「部署 → 管理部署作業 → 編輯 → 新版本」，網址才不變。改完記得提醒老師。
 - GET：讀三個資料夾裡最近 `MAX_DAYS`（120）天的 JSON；整份回應快取 60 秒，單檔內容依「檔案 ID＋更新時間」快取 6 小時。
 - POST 動作：`ping`、`createMeeting`、`postMessage`、`createCommand`（可帶 `needs_approval`）、`approveCommand`、`trash`、`retag`。全部需要指令碼屬性 `ADMIN_KEY`，並用 LockService 串行，完成後清掉整份回應的快取。`trash` 與 `retag` 只接受三個資料夾內的檔案。
+- 權限：`apps-script/appsscript.json` 固定 `oauthScopes` 為完整 Drive 權限，老師可貼到專案的 appsscript.json。2026-11-03 曾發生讀取正常、寫入出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」（授權只拿到讀取）；處理方式是在編輯器執行 `authorize()`、授權時全部勾選，再部署新版本。
 - 部署設定：執行身分「我」（moredof@gmail.com）、存取權「所有人」。GET 的資料因此是公開的（任何人可讀三個資料夾最近 120 天的全部 JSON，含會議發言全文），老師已同意；2026-11-03 再次確認開發期間不加讀取密碼。代理人與老師都不要在紀錄、會議、指令裡寫機密或帶分享金鑰的連結。
 
 ## 7. 技能（`skills/`）

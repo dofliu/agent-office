@@ -205,8 +205,10 @@ ol.tl li:first-child::before{background:var(--hue,var(--accent))}
   header.top{flex-wrap:nowrap; align-items:center; gap:8px}
   .controls{flex-wrap:nowrap; gap:6px; margin-left:auto}
   .sync-state{font-size:10.5px; gap:5px}
-  .brand{flex:none; width:3.2em; font-size:20px}   /* 標題固定兩行（雲端紀／錄看板），按鈕再多也不會擠成直排 */
-  .brand h1{font-size:inherit}
+  .brand{flex:none; font-size:15px}   /* 標題固定兩行（劉瑞弘老師／研究室），按鈕再多也不會擠成直排 */
+  .brand h1{font-size:inherit; line-height:1.15}
+  .h-org{display:none}
+  .h-lab>span{display:block}
   .controls .btn{white-space:nowrap}
   label.iv{display:none}   /* 自動更新間隔在手機上收起來，空出位置給按鈕 */
   select,.btn{font-size:12px; padding:5px 10px}

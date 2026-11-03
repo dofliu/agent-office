@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><title>結尾</title>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>簡報</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:1920px;height:1080px;overflow:hidden;background:#070d17}
@@ -55,32 +55,16 @@ body{font-family:"Noto Sans TC","Noto Sans CJK TC","WenQuanYi Zen Hei","PingFang
 .trk .tag{position:absolute;left:0;bottom:40px;transform:translateX(-50%)}
 .trk i.pin{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 0 6px rgba(45,212,191,.3),0 4px 12px rgba(0,0,0,.5)}
 .trk i.stem{position:absolute;left:-1.5px;bottom:9px;width:3px;height:31px;background:linear-gradient(0deg,#2dd4bf,rgba(45,212,191,.2))}
-.chips{margin-top:46px;display:flex;gap:24px}.sign{margin-top:54px;font-size:40px;font-weight:700;color:#7ff0df;letter-spacing:.12em}</style></head>
-<body style="--dur:8s">
-<div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div><canvas id="fx" style="position:absolute;inset:0;z-index:3;pointer-events:none"></canvas>
-<script>
-(()=>{const cv=document.getElementById('fx'),W=innerWidth,H=innerHeight;cv.width=W;cv.height=H;const cx=cv.getContext('2d');
-let s=7;const R=()=>(s=(s*16807)%2147483647)/2147483647;
-const P=[];for(let i=0;i<90;i++)P.push({x:R()*W,y:R()*H,r:.8+R()*2.6,s:.12+R()*.5,o:.12+R()*.4,hue:R()<.6?'45,212,191':'167,139,250',ph:R()*6.28});
-function draw(){const t=performance.now()/1000;cx.clearRect(0,0,W,H);
- for(const p of P){const y=(p.y-t*38*p.s)%H,yy=y<0?y+H:y,x=p.x+Math.sin(t*.5+p.ph)*26,tw=.55+.45*Math.sin(t*1.7+p.ph*3);
-  cx.beginPath();cx.arc(x,yy,p.r,0,6.283);cx.fillStyle=`rgba(${p.hue},${(p.o*tw).toFixed(3)})`;cx.fill();}
- requestAnimationFrame(draw);}
-requestAnimationFrame(draw);})();
-</script>
+</style></head>
+<body style="--dur:12s">
+<div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div>
 <canvas class="foot" width="1920" height="1080"></canvas>
 <div class="stage">
-
-<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
- <div class="kicker in" style="--d:.2s">DofLab · Agent Office</div>
- <div class="h1 pop" style="--d:.5s;margin-top:26px;font-size:124px">代理人的 3D 辦公室</div>
- <div class="chips in" style="--d:1.2s"><span class="chip">跨帳號協作</span><span class="chip">開會・投票・指令</span><span class="chip">3D 即時呈現</span></div>
- <div class="sign in" style="--d:1.9s">DofLab　劉瑞弘</div>
+<div class="ttl" style="left:96px;bottom:86px"><div class="kicker in" style="--d:0.4s">會議結束</div><div class="h in" style="--d:0.55s;font-size:60px;">簡報自動播，老師在螢幕上核准</div><div class="sub in" style="--d:0.80s">封面 → 摘要 → 決議 → 待辦 → 裁示（依真實會議重現）</div></div>
 </div>
-</div>
-<div class="shade all" style="background:rgba(5,9,16,.66)"></div>
+<div class="shade b" style="height:380px"></div>
 <div class="vig"></div>
-<script>window.__FOOT=[{"at": 0, "from": 0, "rate": 1, "shot": "aerial_end", "n": 252}];window.__TRACK={};</script>
+<script>window.__FOOT=[{"at": 0, "from": 0, "rate": 1, "shot": "slides", "n": 378}];window.__TRACK={};</script>
 <script>
 (()=>{const T=window.__TRACK||{},els=[...document.querySelectorAll('.trk')];const W=innerWidth,H=innerHeight,AV=window.__AVOID||null;
 window.__trackUpdate=(t,a)=>{const fr=(T[a.seg.shot]||[])[a.i-1]||{};const sc=(a.seg.scale||1),ox=a.seg.ox||0,oy=a.seg.oy||0;

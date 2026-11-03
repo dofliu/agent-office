@@ -205,14 +205,27 @@ async function openBoard(browser, opts = {}) {
   pg.on('pageerror', e => console.log('  [pageerror]', e.message));
   pg.on('console', m => { if (m.type() === 'error' && !/favicon/.test(m.text())) console.log('  [console]', m.text().slice(0, 200)); });
   await pg.addInitScript(initScript, { nowEpoch: opts.now ? Date.parse(opts.now) : 0, seed: opts.seed || 20261103 });
-  await pg.addInitScript(([view]) => {
-    try { localStorage.clear(); localStorage.setItem('cloudlog.view', view || 'office'); localStorage.setItem('cloudlog.focus', '0'); localStorage.setItem('cloudlog.names', '1'); localStorage.setItem('cloudlog.team', 'all'); } catch (e) {}
-  }, [opts.view || 'office']);
-  if (opts.feed) await pg.route(/script\.google(usercontent)?\.com/, r => r.fulfill({ status: 200, contentType: 'application/json', body: fs.readFileSync(opts.feed) }));
+  await pg.addInitScript(([view, admin]) => {
+    try { localStorage.clear(); localStorage.setItem('cloudlog.view', view || 'office'); localStorage.setItem('cloudlog.focus', '0'); localStorage.setItem('cloudlog.names', '1'); localStorage.setItem('cloudlog.team', 'all');
+      if (admin) localStorage.setItem('agentoffice.adminKey', 'promo'); } catch (e) {}
+  }, [opts.view || 'office', !!opts.admin]);
+  // 快照資料；opts.admin 時把寫入（POST）在本機假裝回應，例如在投影幕上「核准執行」，不會真的寫到雲端
+  if (opts.feed) await pg.route(/script\.google(usercontent)?\.com/, r => {
+    const body = fs.readFileSync(opts.feed), rq = r.request();
+    if (rq.method() !== 'POST') return r.fulfill({ status: 200, contentType: 'application/json', body });
+    const q = JSON.parse(rq.postData() || '{}'), stamp = new Date(Date.now() + 8 * 3600e3).toISOString().replace(/\D/g, '').slice(0, 14);
+    if (q.action === 'read') return r.fulfill({ status: 200, contentType: 'application/json', body });
+    if (q.action === 'decideMinutes') { const feed = JSON.parse(body), mn = feed.meetings.map(f => f.data).find(x => x && x.type === 'minutes' && x.meeting_id === q.meeting_id) || { actions: [] };
+      const cmds = (mn.actions || []).map((a, i) => ({ id: 'pc' + i, title: 'c.json', modified: new Date().toISOString(), data: { type: 'command', command_id: 'C' + stamp + 'pv0' + i, to: a.to, title: a.task, instruction: a.task, created: stamp, source_meeting: q.meeting_id } }));
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, commands: cmds, file: { id: 'pd', title: 'd.json', modified: new Date().toISOString(),
+        data: { type: 'minutes_decision', meeting_id: q.meeting_id, time: stamp, decision: q.decision, note: '', actions: cmds.map(c => ({ to: c.data.to, task: c.data.title, command_id: c.data.command_id })) } } }) }); }
+    return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+  });
   await pg.route(/js\/office\.js/, async r => { const res = await r.fetch(); r.fulfill({ response: res, body: (await res.text()) + `
 window.__dbg = { THREE, agents, deskOf, held, scene, camera, controls, renderer, clock, placeAt, goTo, say, command, endOverride, focusFace, focusPoint, focusRoom,
   flyTo, fit, closeMenu, personMenu, deviceMenu, deskScreenMenu, screenMenu, roomMenu, runDevice, B2T, nickOf, devSay,
-  get floor() { return floor; }, get fly() { return fly; }, setFly: v => { fly = v; }, setUserMoved: v => { userMoved = v; } };` }); });
+  get floor() { return floor; }, get fly() { return fly; }, setFly: v => { fly = v; }, setUserMoved: v => { userMoved = v; },
+  slideTo: i => { slideOff = i - Math.floor(performance.now() / 1000 / SLIDE_S); projSig = ''; drawProjector(); } };` }); });
   await pg.goto(opts.base || 'http://127.0.0.1:8765/index.html');
   await pg.waitForFunction(() => window.__dbg && window.__dbg.floor && window.__dbg.agents.size > 0 && /上次/.test(document.getElementById('syncText').textContent), null, { timeout: 120000 });
   await pg.addStyleTag({ content: HIDE_CSS });

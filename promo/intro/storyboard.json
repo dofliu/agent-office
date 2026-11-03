@@ -10,102 +10,92 @@
    "transition": "fade"
   },
   {
-   "file": "i02_team.html",
-   "duration": 8,
+   "file": "i02_contrast.html",
+   "duration": 11,
    "transition": "smoothleft"
   },
   {
-   "file": "i03_ui.html",
+   "file": "i03_team.html",
    "duration": 9,
    "transition": "circleopen"
   },
   {
-   "file": "i04_fly.html",
+   "file": "i04_ui.html",
+   "duration": 8,
+   "transition": "fade"
+  },
+  {
+   "file": "i05_fly.html",
    "duration": 14,
    "transition": "fade"
   },
   {
-   "file": "i05_office.html",
-   "duration": 10,
-   "transition": "fade"
-  },
-  {
-   "file": "i06_screen.html",
+   "file": "i06_office.html",
    "duration": 10,
    "transition": "smoothleft"
   },
   {
-   "file": "i07_panel.html",
+   "file": "i07_screen.html",
    "duration": 9,
    "transition": "smoothup"
   },
   {
-   "file": "i08_circle.html",
-   "duration": 10,
+   "file": "i08_panel.html",
+   "duration": 9,
+   "transition": "fade"
+  },
+  {
+   "file": "i09_kanban.html",
+   "duration": 9,
    "transition": "circleopen"
   },
   {
-   "file": "i09_interact.html",
-   "duration": 10,
-   "transition": "smoothleft"
-  },
-  {
-   "file": "i10_states.html",
-   "duration": 6,
-   "transition": "fade"
-  },
-  {
-   "file": "i11_call.html",
+   "file": "i10_request.html",
    "duration": 8,
    "transition": "smoothleft"
   },
   {
-   "file": "i12_meet.html",
+   "file": "i11_meet.html",
    "duration": 10,
-   "transition": "fade"
-  },
-  {
-   "file": "i13_proposals.html",
-   "duration": 8,
    "transition": "fadeblack"
   },
   {
-   "file": "i14_vote.html",
+   "file": "i12_vote.html",
    "duration": 8,
    "transition": "fade"
   },
   {
-   "file": "i15_decide.html",
-   "duration": 9,
+   "file": "i13_slides.html",
+   "duration": 12,
+   "transition": "smoothleft"
+  },
+  {
+   "file": "i14_loop.html",
+   "duration": 8,
    "transition": "circleopen"
   },
   {
-   "file": "i16_beforeafter.html",
-   "duration": 9,
-   "transition": "smoothleft"
-  },
-  {
-   "file": "i17_bplus.html",
-   "duration": 11,
-   "transition": "fade"
-  },
-  {
-   "file": "i18_studio.html",
+   "file": "i15_bplus.html",
    "duration": 10,
+   "transition": "fade"
+  },
+  {
+   "file": "i16_studio.html",
+   "duration": 9,
    "transition": "smoothleft"
   },
   {
-   "file": "i19_booth.html",
-   "duration": 9,
+   "file": "i17_project.html",
+   "duration": 8,
    "transition": "fade"
   },
   {
-   "file": "i20_loop.html",
-   "duration": 7,
+   "file": "i18_future.html",
+   "duration": 13,
    "transition": "fade"
   },
   {
-   "file": "i21_end.html",
+   "file": "i19_end.html",
    "duration": 8
   }
  ]

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><title>起點</title>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>協作</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:1920px;height:1080px;overflow:hidden;background:#070d17}
@@ -55,29 +55,22 @@ body{font-family:"Noto Sans TC","Noto Sans CJK TC","WenQuanYi Zen Hei","PingFang
 .trk .tag{position:absolute;left:0;bottom:40px;transform:translateX(-50%)}
 .trk i.pin{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 0 6px rgba(45,212,191,.3),0 4px 12px rgba(0,0,0,.5)}
 .trk i.stem{position:absolute;left:-1.5px;bottom:9px;width:3px;height:31px;background:linear-gradient(0deg,#2dd4bf,rgba(45,212,191,.2))}
-
-.col{position:absolute;top:250px;width:360px;display:flex;flex-direction:column;align-items:flex-start;gap:14px}
-.th{font-size:34px;font-weight:900;letter-spacing:.08em;margin-bottom:6px}
-.wires{position:absolute;left:0;top:0}
-.wires path{fill:none;stroke:rgba(45,212,191,.55);stroke-width:3;stroke-dasharray:900;stroke-dashoffset:900;animation:draw 1.3s ease-out 2.2s forwards}
-@keyframes draw{to{stroke-dashoffset:0}}
-.hub{position:absolute;left:600px;width:720px;top:800px;padding:26px 36px;border-radius:26px;display:flex;flex-direction:column;align-items:center;gap:18px;
- background:linear-gradient(165deg,rgba(24,38,62,.95),rgba(12,20,36,.96));border:1.5px solid rgba(45,212,191,.45);box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 60px rgba(45,212,191,.18)}
-.hub-h{display:flex;align-items:center;gap:20px;font-size:42px;font-weight:900}
-.hub-r{display:flex;gap:20px}</style></head>
+.src{position:absolute;left:110px;top:250px;width:1700px;padding:20px 30px;border-radius:18px;background:rgba(45,212,191,.12);border:1.5px solid rgba(45,212,191,.5);display:flex;gap:30px;align-items:baseline}
+.k2{font-size:36px;font-weight:900;color:#7ff0df}.v2{font-size:30px;font-weight:700}
+.crows{position:absolute;left:110px;top:380px;width:1700px;display:flex;flex-direction:column;gap:20px}
+.crow{display:grid;grid-template-columns:130px 330px 1fr;align-items:center;gap:20px;padding:18px 26px;border-radius:18px;background:rgba(20,32,52,.85);border:1.5px solid rgba(150,200,255,.2)}
+.who2{font-size:36px;font-weight:900;color:#c4b5fd}.task{font-size:30px;font-weight:700;white-space:nowrap}
+.pills{display:flex;align-items:center;gap:14px}.ar{font-size:40px;color:#2dd4bf;font-weight:900}
+.st{padding:10px 22px;border-radius:999px;font-size:26px;font-weight:700;white-space:nowrap;background:rgba(63,191,106,.16);border:1.5px solid rgba(63,191,106,.6);color:#9be8b0}</style></head>
 <body style="--dur:8s">
 <div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div>
 
 <div class="stage">
 
-<div class="ttl" style="left:110px;top:64px"><div class="kicker in" style="--d:.1s">起點</div><div class="h in" style="--d:.25s">12 位代理人，各做各的</div></div>
-<div class="col" style="left:170px"><div class="th in" style="--d:0.45s;color:#1f9ab8">DofLab</div><span class="tag pop" style="--d:0.5s;"><i class="dot" style="background:#1f9ab8"></i>小櫻</span><span class="tag pop" style="--d:0.6s;"><i class="dot" style="background:#1f9ab8"></i>佐助</span><span class="tag pop" style="--d:0.7s;"><i class="dot" style="background:#1f9ab8"></i>鹿丸</span><span class="tag pop" style="--d:0.8s;"><i class="dot" style="background:#1f9ab8"></i>鼬</span><span class="tag pop" style="--d:0.9s;"><i class="dot" style="background:#1f9ab8"></i>水門</span></div><div class="col" style="left:580px"><div class="th in" style="--d:0.75s;color:#d0892a">DofGM</div><span class="tag pop" style="--d:0.8s;"><i class="dot" style="background:#d0892a"></i>雛田</span><span class="tag pop" style="--d:0.9s;"><i class="dot" style="background:#d0892a"></i>卡卡西</span><span class="tag pop" style="--d:1.0s;"><i class="dot" style="background:#d0892a"></i>綱手</span><span class="tag pop" style="--d:1.1s;"><i class="dot" style="background:#d0892a"></i>我愛羅</span><span class="tag pop" style="--d:1.2s;"><i class="dot" style="background:#d0892a"></i>大蛇丸</span></div><div class="col" style="left:990px"><div class="th in" style="--d:1.05s;color:#d0574b">NCUT_PJ</div><span class="tag pop" style="--d:1.1s;"><i class="dot" style="background:#d0574b"></i>自來也</span></div><div class="col" style="left:1400px"><div class="th in" style="--d:1.35s;color:#8a66d6">Pro</div><span class="tag pop" style="--d:1.4s;"><i class="dot" style="background:#8a66d6"></i>鳴人</span></div>
-<svg class="wires" width="1920" height="1080"><path d="M340,690 C340,770 960,700 960,800"/><path d="M750,690 C750,770 960,700 960,800"/><path d="M1160,400 C1160,770 960,700 960,800"/><path d="M1570,400 C1570,770 960,700 960,800"/></svg>
-<div class="hub pop" style="--d:3.3s">
- <div class="hub-h"><svg width="58" height="50" viewBox="0 0 58 50"><path d="M6 46V18L29 4l23 14v28H36V30H22v16z" fill="#2dd4bf" opacity=".9"/></svg>同一間 3D 辦公室</div>
- <div class="hub-r"><span class="badge">工作紀錄</span><span class="badge">會議</span><span class="badge">指令</span></div>
-</div>
-<div class="cap in" style="--d:4.3s;position:absolute;left:0;right:0;bottom:40px;text-align:center">每位代理人在自己的帳號排程工作、彼此看不到　→　看板把大家的動態畫成同一層樓</div>
+<div class="ttl" style="left:110px;top:64px"><div class="kicker in" style="--d:.1s">協作真的在跑</div><div class="h in" style="--d:.25s">決議 → 指令 → 回報</div></div>
+<div class="src pop" style="--d:.45s"><div class="k2">第 9 週教材分工</div><div class="v2">四個帳號的代理人分工，各自排程回報進度</div></div>
+<div class="crows"><div class="crow in" style="--d:0.70s"><span class="who2">小櫻</span><span class="task">簡報與總整合</span><div class="pills"><span class="st pop" style="--d:1.30s">已收到</span><span class="ar in" style="--d:1.50s">›</span><span class="st pop" style="--d:1.80s">大綱 v1.2</span><span class="ar in" style="--d:2.00s">›</span><span class="st pop" style="--d:2.30s">進行中</span></div></div><div class="crow in" style="--d:0.95s"><span class="who2">瑞弘</span><span class="task">動畫</span><div class="pills"><span class="st pop" style="--d:1.55s">已收到</span><span class="ar in" style="--d:1.75s">›</span><span class="st pop" style="--d:2.05s">步驟表 v1</span><span class="ar in" style="--d:2.25s">›</span><span class="st pop" style="--d:2.55s">完成 ✓</span></div></div><div class="crow in" style="--d:1.20s"><span class="who2">黃謙</span><span class="task">練習題與解答卷</span><div class="pills"><span class="st pop" style="--d:1.80s">已收到</span><span class="ar in" style="--d:2.00s">›</span><span class="st pop" style="--d:2.30s">docx＋PDF</span><span class="ar in" style="--d:2.50s">›</span><span class="st pop" style="--d:2.80s">完成 ✓</span></div></div><div class="crow in" style="--d:1.45s"><span class="who2">小智</span><span class="task">交叉檢查與 QA</span><div class="pills"><span class="st pop" style="--d:2.05s">已收到</span><span class="ar in" style="--d:2.25s">›</span><span class="st pop" style="--d:2.55s">題卷初檢</span><span class="ar in" style="--d:2.75s">›</span><span class="st pop" style="--d:3.05s">複核中</span></div></div></div>
+<div class="cap in" style="--d:3.8s;position:absolute;left:110px;right:110px;bottom:56px;font-size:28px">每一步都留下紀錄：做到哪個階段、下一步是什麼、成果在哪裡</div>
 
 </div>
 

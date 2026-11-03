@@ -120,9 +120,9 @@ S.append(scene(D / 'i04_ui.html', '介面', 8, f"""
 .num{flex:none;width:46px;height:46px;border-radius:50%;background:rgba(45,212,191,.18);border:1.5px solid #2dd4bf;color:#7ff0df;display:flex;align-items:center;justify-content:center;font-size:26px}"""))
 
 # ───────────────────────── 05 走一圈 ─────────────────────────
-rooms = [('電話亭W', '電話亭', 0, 3.2), ('B+ 會議／試播室', 'B+ 會議／試播室', .6, 5.2), ('DofLab 辦公室', 'DofLab 辦公室', .9, 5.6), ('茶水間', '茶水間', 3.2, 8.4),
-         ('DofGM 辦公室', 'DofGM 辦公室', 4.6, 9.8), ('錄課棚', '錄課棚', 6.6, 11.6), ('NCUT_PJ 辦公室', 'NCUT_PJ 辦公室', 8.8, 13.4), ('共用座位', '共用座位', 10.2, 14),
-         ('電話亭E', '電話亭', 11, 14)]
+rooms = [('電話亭W', '電話亭', 0, 3.2), ('B+ 會議／試播室', 'B+ 會議／試播室', .6, 5.0), ('DofLab 辦公室', 'DofLab 辦公室', .9, 5.4), ('會議室 2', '會議室 2', 2.4, 6.6),
+         ('會議室 3', '會議室 3', 3.8, 8.0), ('DofGM 辦公室', 'DofGM 辦公室', 4.4, 9.4), ('茶水間', '茶水間', 6.0, 10.6), ('NCUT_PJ 辦公室', 'NCUT_PJ 辦公室', 7.8, 12.4),
+         ('錄課棚', '錄課棚', 9.4, 14), ('共用座位', '共用座位', 10.8, 14), ('電話亭E', '電話亭', 11.6, 14)]
 S.append(scene(D / 'i05_fly.html', '走一圈', 14, ttl('運鏡導覽', '走一圈辦公室', '南側是團隊辦公室，北側是會議室、茶水間、錄課棚', pos='left:96px;top:70px'),
     over='<div class="shade t" style="height:430px"></div>' + ''.join(trk(k, t, a, b) for k, t, a, b in rooms),
     foot=[{'shot': 'corridor'}], track_keys=[r[0] for r in rooms], avoid=[0, 0, 1180, 330]))

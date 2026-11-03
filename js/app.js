@@ -114,6 +114,10 @@
   // 同一個帳號在不同 TEAM 用同一個暱稱（2026-11-03 員工形象決議），會議與指令裡的名字加上 TEAM 才分得出來
   const teamShort = t => String(t || '').replace(/^(team|personal)\s+/i, '').trim();
   const NICK_N = new Map(); for (const x of NICKS.values()) NICK_N.set(x.nick, (NICK_N.get(x.nick) || 0) + 1);
+  // 今日工作排名（看板牆）：每小時「雲端會議」排程寫的紀錄（會議發言、結論、檢查會議室、處理指令）另外算，不列入排名
+  const MEET_WORK = /會議發言|會議結論|雲端會議|檢查會議室|檢查指令|主持會議|^(完成|處理|回報|執行)指令/;
+  const isMeetWork = r => MEET_WORK.test(r.topic || '') || /^(排程)?(檢查|參加)會議室/.test(r.content || '') || !!(r.refs && (r.refs.meeting_id || r.refs.command_id));
+  const todayCounts = list => { let work = 0, meet = 0; for (const r of list) isMeetWork(r) ? meet++ : work++; return { todayWork: work, todayMeet: meet }; };
   const nickTeamOf = c => c.nick + (NICK_N.get(c.nick) > 1 ? '·' + teamShort(c.team) : '');
 
   // ---------- formatting ----------
@@ -148,12 +152,13 @@
     });
     const byAcc = {};
     for (const r of recs) { const k = r.account + '|' + teamKey(r.team); (byAcc[k] = byAcc[k] || []).push(r); }
-    const weekAgo = Date.now() - 7 * 86400e3;
+    const weekAgo = Date.now() - 7 * 86400e3, todayStr = fmtDay.format(Date.now());
     const accounts = Object.entries(byAcc).map(([key, list]) => {
       list.sort((a, b) => b.ts - a.ts);
       const latest = list[0], tk = teamKey(latest.team);
       const cfg = agentCfg(latest.account, latest.team);
-      return { key, account: latest.account, nick: cfg ? cfg.nick : latest.account.split('@')[0], look: cfg && cfg.look || null, teamKey: tk, list, latest, team: teamInfo[tk], total: list.length, week: list.filter(r => r.ts >= weekAgo).length };
+      return { key, account: latest.account, nick: cfg ? cfg.nick : latest.account.split('@')[0], look: cfg && cfg.look || null, teamKey: tk, list, latest, team: teamInfo[tk], total: list.length, week: list.filter(r => r.ts >= weekAgo).length,
+        ...todayCounts(list.filter(r => fmtDay.format(r.ts) === todayStr)) };
     }).sort((a, b) => a.account.localeCompare(b.account) || a.team.label.localeCompare(b.team.label));
     // meetings
     const meetings = new Map();
@@ -329,7 +334,15 @@
   $('oFull').addEventListener('click', () => setFocus(!document.body.classList.contains('focus')));
   if (lsGet('cloudlog.focus') === '1') document.body.classList.add('focus');
   for (const b of document.querySelectorAll('.views button')) b.addEventListener('click', () => { view = b.dataset.view; lsSet('cloudlog.view', view); render(); });
-  window.cloudlogBridge = { open: k => openDrawer(k), meetings: id => openMeetings(id), plan: () => openPlan(), project: id => openProjects(id), refresh: () => render(), name: p => partyName(p) };
+  window.cloudlogBridge = { open: k => openDrawer(k), meetings: id => openMeetings(id), plan: () => openPlan(), project: id => openProjects(id), refresh: () => render(), name: p => partyName(p),
+    // 3D 投影幕播放會議簡報時，直接在投影幕核准結論
+    ruling: id => { const x = model().meetings.find(q => q.id === id); return x ? { awaiting: !!x.awaitingRuling, n: (x.minutes && x.minutes.actions || []).length, admin: isAdmin, ruling: x.ruling ? x.ruling.decision : null } : null; },
+    approve: async id => { const m = model(), x = m.meetings.find(q => q.id === id);
+      if (!x || !x.awaitingRuling) return { bad: true, text: '這場會議已經裁示過了。' };
+      if (!isAdmin) return { bad: true, text: '請先管理登入。' };
+      if (!ruleDraft[x.id]) ruleDraft[x.id] = { mode: null, acts: (x.minutes.actions || []).map(a => ({ to: (m.accounts.find(q => isMe(a.to, q)) || {}).key || '', task: a.task || '' })), note: '' };
+      await sendRuling(x, m, 'approved'); return sendMsg || { bad: true, text: '送出失敗，請到會議頁再試一次。' }; },
+    login: () => openAdmin() };
 
   const MIN_SLOTS = 15;
   function layoutStage(n) {

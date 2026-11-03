@@ -278,21 +278,37 @@ function panel(w, h, cw, ch, frameColor, legH = 0) {
 function drawKanban() {
   const kb = floor && floor.kanban; if (!kb) return;
   const list = [...agents.values()].sort((a, b) => ORDER.indexOf(a.mode) - ORDER.indexOf(b.mode) || nickOf(a.group).localeCompare(nickOf(b.group)));
-  const sig = JSON.stringify(list.map(a => [nickOf(a.group), a.mode, a.group.pending || 0, colorOf(a.group)])); if (sig === kb.sig) return; kb.sig = sig;
+  const rank = [...agents.values()].sort((a, b) => (b.group.todayWork || 0) - (a.group.todayWork || 0) || (b.group.todayMeet || 0) - (a.group.todayMeet || 0) || nickOf(a.group).localeCompare(nickOf(b.group)));
+  const sig = JSON.stringify([list.map(a => [nickOf(a.group), a.mode, a.group.pending || 0, colorOf(a.group)]), rank.map(a => [a.key, a.group.todayWork || 0, a.group.todayMeet || 0])]); if (sig === kb.sig) return; kb.sig = sig;
   const x = kb.ctx; x.fillStyle = '#0f1a24'; x.fillRect(0, 0, 1024, 576); x.textBaseline = 'middle';
-  x.fillStyle = '#e3ecf3'; x.font = `800 38px ${F}`; x.fillText('看板牆 · 代理人進度', 36, 44);
+  x.fillStyle = '#e3ecf3'; x.font = `800 34px ${F}`; x.fillText('看板牆 · 代理人狀態', 36, 42);
   const cnt = {}; for (const a of list) cnt[a.mode] = (cnt[a.mode] || 0) + 1;
-  x.font = `500 22px ${F}`; let cx = 520;
-  for (const k of ORDER) if (cnt[k]) { x.fillStyle = css(STATES[k].tok) || '#ccc'; x.beginPath(); x.arc(cx, 46, 8, 0, 7); x.fill(); x.fillStyle = '#b9c7d3'; x.fillText(`${STATES[k].label} ${cnt[k]}`, cx + 14, 46); cx += x.measureText(`${STATES[k].label} ${cnt[k]}`).width + 40; }
-  x.fillStyle = '#253647'; x.fillRect(36, 80, 952, 2);
-  const rows = Math.ceil(list.length / 2) || 1, rh = Math.min(70, 470 / rows);
-  list.forEach((a, i) => { const col = i < rows ? 0 : 1, row = col ? i - rows : i, bx = 36 + col * 484, by = 100 + row * rh;
-    x.fillStyle = '#15222f'; x.beginPath(); x.roundRect(bx, by, 464, rh - 10, 10); x.fill();
-    x.fillStyle = colorOf(a.group); x.fillRect(bx, by, 8, rh - 10);
-    x.fillStyle = css(STATES[a.mode].tok) || '#ccc'; x.beginPath(); x.arc(bx + 34, by + (rh - 10) / 2, 10, 0, 7); x.fill();
-    x.fillStyle = '#e3ecf3'; x.font = `700 ${Math.round(rh * .42)}px ${F}`; x.fillText(nickOf(a.group), bx + 56, by + (rh - 10) / 2);
-    x.fillStyle = '#8ea1b2'; x.font = `500 ${Math.round(rh * .32)}px ${F}`; x.textAlign = 'right';
-    x.fillText(STATES[a.mode].label + (a.group.pending ? ` · 待辦 ${a.group.pending}` : '') + ' · ' + (a.group.team ? a.group.team.label : ''), bx + 448, by + (rh - 10) / 2); x.textAlign = 'left'; });
+  x.font = `500 19px ${F}`; let cx = 400;
+  for (const k of ORDER) if (cnt[k]) { const s = `${STATES[k].label} ${cnt[k]}`; x.fillStyle = css(STATES[k].tok) || '#ccc'; x.beginPath(); x.arc(cx, 44, 7, 0, 7); x.fill(); x.fillStyle = '#b9c7d3'; x.fillText(s, cx + 12, 44); cx += x.measureText(s).width + 30; }
+  x.fillStyle = '#253647'; x.fillRect(36, 76, 952, 2);
+  // left: everyone's state (one column)
+  const LW = 520, n = list.length || 1, rh = Math.min(36, 410 / n), fs = Math.round(Math.min(20, rh * .5));
+  list.forEach((a, i) => { const bx = 36, by = 92 + i * rh, h = rh - 6, my = by + h / 2;
+    x.fillStyle = '#15222f'; x.beginPath(); x.roundRect(bx, by, LW, h, 8); x.fill();
+    x.fillStyle = colorOf(a.group); x.fillRect(bx, by, 6, h);
+    x.fillStyle = css(STATES[a.mode].tok) || '#ccc'; x.beginPath(); x.arc(bx + 26, my, Math.min(8, h / 3), 0, 7); x.fill();
+    x.fillStyle = '#e3ecf3'; x.font = `700 ${fs}px ${F}`; x.fillText(nickOf(a.group), bx + 44, my);
+    x.fillStyle = '#8ea1b2'; x.font = `500 ${Math.round(fs * .82)}px ${F}`; x.textAlign = 'right';
+    x.fillText(STATES[a.mode].label + (a.group.pending ? ` · 待辦 ${a.group.pending}` : '') + ' · ' + (a.group.team ? a.group.team.label : ''), bx + LW - 14, my); x.textAlign = 'left'; });
+  // right: today's ranking of work returned (cloud-meeting work counted separately)
+  const RX = 580, RW = 408;
+  x.fillStyle = '#15222f'; x.beginPath(); x.roundRect(RX, 92, RW, 420, 12); x.fill();
+  x.fillStyle = '#ffcf5a'; x.font = `800 24px ${F}`; x.fillText('今日回傳工作排名', RX + 18, 118);
+  x.fillStyle = '#8ea1b2'; x.font = `500 14px ${F}`; x.fillText('不含每小時雲端會議（發言、結論、指令回報）', RX + 18, 146);
+  const max = Math.max(1, ...rank.map(a => a.group.todayWork || 0)), rr = Math.min(28, 330 / n);
+  rank.forEach((a, i) => { const y = 170 + i * rr + rr / 2, w = a.group.todayWork || 0, mt = a.group.todayMeet || 0, f2 = Math.round(Math.min(17, rr * .55));
+    x.fillStyle = i < 3 && w ? ['#ffcf5a', '#d9e2ea', '#e0a36a'][i] : '#6f8496'; x.font = `800 ${f2}px ${F}`; x.textAlign = 'right'; x.fillText(String(i + 1), RX + 40, y); x.textAlign = 'left';
+    x.fillStyle = '#e3ecf3'; x.font = `700 ${f2}px ${F}`; x.fillText(nickOf(a.group), RX + 52, y);
+    const bx = RX + 132, bw = 190;
+    x.fillStyle = '#22364a'; x.fillRect(bx, y - rr * .2, bw, rr * .4);
+    if (w) { x.fillStyle = colorOf(a.group); x.fillRect(bx, y - rr * .2, bw * w / max, rr * .4); }
+    x.fillStyle = w ? '#e3ecf3' : '#6f8496'; x.font = `800 ${f2}px ${F}`; x.textAlign = 'right'; x.fillText(String(w), RX + RW - 50, y);
+    x.fillStyle = '#6f8496'; x.font = `500 ${Math.round(f2 * .78)}px ${F}`; x.fillText(mt ? `會${mt}` : '', RX + RW - 12, y); x.textAlign = 'left'; });
   kb.tex.needsUpdate = true;
 }
 function drawTrial(t) {   // 1080p 16:9 trial projection: a looping slide with a turbine and a timeline scrubber
@@ -535,11 +551,79 @@ function drawScreen(scr, ag, t) {
   wrapText(x, line, 210, 2).forEach((l, i) => x.fillText(l, 14, 150 + i * 20));
   scr.tex.needsUpdate = true;
 }
+// After a meeting ends, the B+ projector plays its "slides" (cover, summary, decisions, to-dos, ruling) — meetings
+// awaiting the teacher's ruling first, then those that ended in the last 48 h. One page every SLIDE_S seconds;
+// clicking the screen can turn pages and (in admin mode) approve the conclusion right there.
+const SLIDE_S = 8, RULE_ZH = { approved: '已核准執行', amended: '已修正後核准', rejected: '不通過' };
+let slideOff = 0, slideFreeze = null;   // while the projector menu is open the page stays put (slideFreeze = page index)
+const slideIndex = t => slideFreeze != null ? slideFreeze : Math.floor(t / SLIDE_S) + slideOff;
+function slideDeck() {
+  const ended = lastMeetings.filter(q => !q.open && q.minutes);
+  const pick = [...ended.filter(q => q.awaitingRuling), ...ended.filter(q => !q.awaitingRuling && Date.now() - (q.minutes.ts || q.lastTs) < 48 * 3600e3).sort((a, b) => b.lastTs - a.lastTs)].slice(0, 3);
+  const deck = [];
+  for (const q of pick) {
+    const mn = q.minutes, dec = mn.decisions || [], acts = mn.actions || [];
+    const pages = [{ q, kind: 'cover' }];
+    if (mn.summary) pages.push({ q, kind: 'summary' });
+    for (let i = 0; i < dec.length; i += 4) pages.push({ q, kind: 'decisions', from: i });
+    for (let i = 0; i < acts.length; i += 4) pages.push({ q, kind: 'actions', from: i });
+    pages.push({ q, kind: 'ruling' });
+    pages.forEach((p, i) => { p.no = i + 1; p.of = pages.length; deck.push(p); });
+  }
+  return deck;
+}
+function slideStatus(q) { return q.awaitingRuling ? ['待老師裁示', '#b8700c'] : q.ruling ? [RULE_ZH[q.ruling.decision] || '已裁示', q.ruling.decision === 'rejected' ? '#c0392b' : '#2c8547'] : ['已結束', '#566676']; }
+function drawSlide(x, p) {
+  const q = p.q, mn = q.minutes, ag = q.agenda || {}, [stTxt, stCol] = slideStatus(q);
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, 1024, 576);
+  x.fillStyle = '#173d55'; x.fillRect(0, 0, 1024, 64);
+  x.fillStyle = '#ffffff'; x.font = `700 24px ${F}`; x.fillText(wrapText(x, '會議簡報 · ' + q.title, 700, 1)[0] || '', 32, 33);
+  x.font = `500 20px ${F}`; x.textAlign = 'right'; x.fillText(`${p.no} / ${p.of}`, 992, 33); x.textAlign = 'left';
+  x.fillStyle = '#d5dce3'; x.fillRect(32, 540, 960, 3); x.fillStyle = '#3f86a6'; x.fillRect(32, 540, 960 * p.no / p.of, 3);
+  const chip = (txt, col, cx, cy) => { x.font = `800 24px ${F}`; const w = x.measureText(txt).width + 40; x.fillStyle = col; x.beginPath(); x.roundRect(cx, cy - 22, w, 44, 22); x.fill(); x.fillStyle = '#fff'; x.fillText(txt, cx + 20, cy); return w; };
+  const H = (t, y = 112) => { x.fillStyle = '#14202b'; x.font = `800 40px ${F}`; x.fillText(t, 48, y); x.fillStyle = '#3f86a6'; x.fillRect(48, y + 30, 64, 5); };
+  if (p.kind === 'cover') {
+    chip('會議結束', '#3f86a6', 48, 122); chip(stTxt, stCol, 220, 122);
+    x.fillStyle = '#14202b'; x.font = `800 50px ${F}`; wrapText(x, q.title, 920, 2).forEach((l, k) => x.fillText(l, 48, 210 + k * 64));
+    x.fillStyle = '#566676'; x.font = `500 26px ${F}`;
+    x.fillText(`主持 ${ag.host ? partyName(ag.host) : '—'} · 與會 ${(ag.attendees || []).length} 人 · 發言 ${q.msgs.length} 則`, 48, 360);
+    x.fillText(`決議 ${(mn.decisions || []).length} 項 · 待辦 ${(mn.actions || []).length} 項`, 48, 404);
+    if (ag.goal) { x.fillStyle = '#33414e'; x.font = `400 24px ${F}`; x.fillText(wrapText(x, '目標：' + ag.goal, 920, 1)[0] || '', 48, 460); }
+  } else if (p.kind === 'summary') {
+    H('結論摘要');
+    x.fillStyle = '#33414e'; x.font = `400 30px ${F}`; wrapText(x, mn.summary, 920, 8).forEach((l, k) => x.fillText(l, 48, 198 + k * 44));
+  } else if (p.kind === 'decisions') {
+    H('決議' + ((mn.decisions || []).length > 4 ? `（${p.from / 4 + 1}）` : ''));
+    let y = 196;
+    (mn.decisions || []).slice(p.from, p.from + 4).forEach((d, k) => { const ls = wrapText(x, d, 860, 2);
+      x.fillStyle = '#3f86a6'; x.beginPath(); x.arc(66, y, 16, 0, 7); x.fill(); x.fillStyle = '#fff'; x.font = `800 18px ${F}`; x.textAlign = 'center'; x.fillText(String(p.from + k + 1), 66, y + 1); x.textAlign = 'left';
+      x.fillStyle = '#14202b'; x.font = `500 26px ${F}`; ls.forEach((l, j) => x.fillText(l, 100, y + j * 36)); y += 36 * ls.length + 32; });
+  } else if (p.kind === 'actions') {
+    H('待辦與負責人');
+    let y = 200;
+    (mn.actions || []).slice(p.from, p.from + 4).forEach(ac => {
+      x.fillStyle = '#eef3f7'; x.beginPath(); x.roundRect(48, y - 34, 928, 72, 12); x.fill();
+      x.fillStyle = '#0f7f97'; x.font = `800 26px ${F}`; x.fillText(wrapText(x, partyName(ac.to), 200, 1)[0] || '—', 72, y + 2);
+      x.fillStyle = '#14202b'; x.font = `500 24px ${F}`; x.fillText(wrapText(x, ac.task || '', 640, 1)[0] || '', 300, y + 2);
+      x.fillStyle = ac.command_id ? '#2c8547' : '#b8700c'; x.font = `700 18px ${F}`; x.textAlign = 'right'; x.fillText(ac.command_id ? '已派指令' : '待派', 956, y + 2); x.textAlign = 'left';
+      y += 88; });
+  } else {
+    H('老師裁示');
+    chip(stTxt, stCol, 48, 210);
+    x.fillStyle = '#33414e'; x.font = `500 28px ${F}`;
+    const n = (mn.actions || []).length;
+    const lines = q.awaitingRuling ? [n ? `核准後，${n} 項待辦會各自變成一條指令，交給負責的人執行。` : '結論沒有列出待辦；要派工請在會議頁「修正後核准」。', '點這面投影幕即可「核准執行」、「修正後核准」或「不通過」（需管理登入）。']
+      : q.ruling ? [q.ruling.note ? '老師說明：' + q.ruling.note : '裁示已送出。', q.ruling.decision === 'rejected' ? '主持人會依原因處理（例如重新討論）。' : '指令已派出，進度在會議頁與各人物的側欄。']
+      : [(mn.actions || []).some(a => a.command_id) ? '主持人已派出指令，進度在會議頁與各人物的側欄。' : '這場會議沒有待辦。'];
+    let y = 290; for (const t of lines) for (const l of wrapText(x, t, 920, 3)) { x.fillText(l, 48, y); y += 42; } 
+  }
+}
 function drawProjector() {
-  const pj = floor && floor.projector; if (!pj) return;
+  const t = performance.now() / 1000, pj = floor && floor.projector; if (!pj) return;
   const cur = lastMeetings.find(q => q.open && q.id === floor.meeting.meetingId) || null, last = lastMeetings[0] || null;
-  const sig = JSON.stringify(cur ? [cur.id, cur.msgs.length, cur.title] : ['none', last && last.id, last && !!last.minutes]); if (sig === projSig) return; projSig = sig;
-  const x = pj.ctx; pj.meetingId = cur ? cur.id : last ? last.id : null;
+  const deck = cur ? [] : slideDeck(), page = deck.length ? deck[(slideIndex(t) % deck.length + deck.length) % deck.length] : null;
+  const sig = JSON.stringify(cur ? [cur.id, cur.msgs.length, cur.title] : page ? ['slide', page.q.id, page.kind, page.from || 0, page.of, slideStatus(page.q)[0], deck.length] : ['none', last && last.id, last && !!last.minutes]); if (sig === projSig) return; projSig = sig;
+  const x = pj.ctx; pj.meetingId = cur ? cur.id : page ? page.q.id : last ? last.id : null; pj.slide = page;
   x.fillStyle = '#f6f8fa'; x.fillRect(0, 0, 1024, 576);
   x.textBaseline = 'middle';
   if (cur) {
@@ -557,6 +641,8 @@ function drawProjector() {
       x.fillStyle = q.from && q.from.team === 'HUMAN' ? '#b8700c' : '#0f7f97'; x.font = `800 28px ${F}`; x.fillText(who, 40, y);
       x.fillStyle = '#14202b'; x.font = `400 27px ${F}`; wrapText(x, q.content, 940, 2).forEach((l, k) => x.fillText(l, 40, y + 40 + k * 36));
     });
+  } else if (page) {
+    drawSlide(x, page);
   } else {
     x.fillStyle = '#14202b'; x.font = `800 52px ${F}`; x.fillText('會議室', 40, 70);
     x.fillStyle = '#566676'; x.font = `500 30px ${F}`; x.fillText('目前沒有進行中的會議', 40, 136);
@@ -1113,7 +1199,7 @@ renderer.setAnimationLoop(() => {
   if (floor) for (const r of floor.rooms) if (r.anchors && r.anchors.seats) for (const st of r.anchors.seats) if (st.rig) {
     const scr = floor.screens.get(st.id), ag = scr && scr.agent; st.rig.target = ag && ag.standing ? LIFT : 0; updateLift(st, dt); }
   if (floor && t - (floor.scrT || 0) > (LITE ? 2 : .5)) { floor.scrT = t; for (const scr of floor.screens.values()) if (scr.agent) { drawScreen(scr, scr.agent, t); drawSecond(scr, scr.agent); }
-    drawKanban(); drawTrial(t);
+    drawKanban(); drawTrial(t); drawProjector();
     for (const b of floor.booths || []) { const dev = floor.devices.get(b.seat.id); setBoothLamp(b, held.has(b.seat.id) || !!(dev && (dev.runUntil > t || deviceUser(dev)))); }
     if (floor.studio) { const inside = ag => !ag.walking && ((ag.ov ? ag.ov.steps[ag.ov.i].anim === 'record' : ag.mode === 'record'));
       setOnAir([...agents.values()].some(inside) || [...floor.devices.values()].some(d => d.use === 'studio' && d.runUntil > t)); } }
@@ -1148,7 +1234,8 @@ function meetingTalk(t) {
 // ---------- picking + action menu ----------
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
 const menu = { el: null, track: null, below: false };
-function closeMenu() { if (menu.el) menu.el.remove(); menu.el = null; menu.track = null; }
+function closeMenu() { if (menu.el) menu.el.remove(); menu.el = null; menu.track = null;
+  if (slideFreeze != null) { slideOff = slideFreeze - Math.floor(performance.now() / 1000 / SLIDE_S); slideFreeze = null; } }
 function placeMenu() {   // keep the menu next to the person / device it belongs to
   const el = menu.el, w = box.clientWidth, h = box.clientHeight;
   const v = menu.track().clone().project(camera);
@@ -1256,12 +1343,34 @@ function roomMenu(r) {
 }
 const openPlan = () => { if (window.cloudlogBridge && window.cloudlogBridge.plan) window.cloudlogBridge.plan(); };
 const SCREENS = {
-  projector: { name: '會議室投影幕', sub: '進行中的會議；沒有時顯示上一場結論', w: 3.6, h: 2.03,
+  projector: { name: '會議室投影幕', sub: '進行中的會議；會議結束後播放會議簡報', w: 3.6, h: 2.03,
     open: ['打開會議紀錄', () => { if (window.cloudlogBridge) window.cloudlogBridge.meetings(floor.projector.meetingId || 'list'); }] },
   kanban: { name: '看板牆', sub: '每位代理人的即時狀態', w: 2.4, h: 1.35, open: ['打開規劃頁', openPlan] },
   trial: { name: '1080p 試播投影', sub: '16:9 試播畫面', w: 2.2, h: 1.24, open: ['打開規劃頁', openPlan] },
   portrait: { name: '直立副螢幕', sub: '題目卷與解答卷並排對照', w: .36, h: .64, open: null }
 };
+// Projector menu while it plays a meeting's slides: turn pages, open the minutes, approve the conclusion (admin).
+function projectorItems(items, kind, obj, confirm = false, msg = null) {
+  if (slideFreeze == null) { slideFreeze = slideIndex(performance.now() / 1000); projSig = ''; drawProjector(); }
+  const pj = floor.projector, page = pj.slide, br = window.cloudlogBridge, id = pj.meetingId;
+  const again = (c, m) => () => { const it = []; projectorItems(it, kind, obj, c, m); it.push(backItem()); const S = SCREENS.projector, f = focusFace(obj, S.w, S.h), narrow = camera.aspect < 1, pg = floor.projector.slide, fz = slideFreeze;
+    showMenu(S.name, pg ? '會議簡報：' + pg.q.title : S.sub, it, () => narrow ? f.c.clone().setY(f.c.y - S.h / 2) : f.c.clone().addScaledVector(f.right, S.w / 2 + .15), false, narrow); slideFreeze = fz; return true; };
+  if (msg) items.push({ label: msg.text, cls: msg.bad ? 'mut' : 'pri', disabled: true, run: () => {} });
+  if (page) {
+    const r = br && br.ruling ? br.ruling(page.q.id) : null;
+    if (r && r.awaiting && !msg) {
+      if (!r.admin) items.push({ label: '管理登入後可在這裡核准', cls: 'pri', run: () => { if (br.login) br.login(); } });
+      else if (!r.n) items.push({ label: '沒有待辦，到會議頁裁示', cls: 'pri', run: () => br.meetings(page.q.id) });
+      else if (!confirm) items.push({ label: `核准執行（派出 ${r.n} 條指令）`, cls: 'pri', run: again(true) });
+      else items.push({ label: `確定核准，派出 ${r.n} 條指令`, cls: 'pri', run: () => { br.approve(page.q.id).then(m => { projSig = ''; drawProjector(); again(false, m)(); }); return true; } },
+        { label: '取消', run: again(false) });
+      if (r.admin) items.push({ label: '修正後核准／不通過…', run: () => br.meetings(page.q.id) });
+    }
+    const turn = d => () => { slideFreeze = slideIndex(performance.now() / 1000) + d; projSig = ''; drawProjector(); return again(false)(); };
+    items.push({ label: '下一頁', run: turn(1) }, { label: '上一頁', run: turn(-1) });
+  }
+  items.push({ label: '打開會議紀錄', cls: page ? '' : 'pri', run: () => { if (br) br.meetings(id || 'list'); } });
+}
 function screenMenu(kind, obj) {
   let S = SCREENS[kind];
   if (kind === 'smallmeet' || kind === 'project') { const r = floor.rooms.find(q => q.id === obj.userData.roomId) || {};
@@ -1269,10 +1378,12 @@ function screenMenu(kind, obj) {
         open: r.meetingId ? ['打開會議紀錄', () => { if (window.cloudlogBridge) window.cloudlogBridge.meetings(r.meetingId); }] : null }
       : { name: '專案：' + (r.label || ''), sub: '目標、成員與指令進度', w: 2.2, h: 1.24, open: ['打開專案', () => { if (window.cloudlogBridge && window.cloudlogBridge.project) window.cloudlogBridge.project(r.pid); }] }; }
   const f = focusFace(obj, S.w, S.h), items = [];
-  if (S.open) items.push({ label: S.open[0], cls: 'pri', run: S.open[1] });
+  if (kind === 'projector') projectorItems(items, kind, obj);
+  else if (S.open) items.push({ label: S.open[0], cls: 'pri', run: S.open[1] });
   items.push(backItem());
-  const narrow = camera.aspect < 1;
-  showMenu(S.name, S.sub, items, () => narrow ? f.c.clone().setY(f.c.y - S.h / 2) : f.c.clone().addScaledVector(f.right, S.w / 2 + .15), false, narrow);
+  const narrow = camera.aspect < 1, fz = slideFreeze, pg = kind === 'projector' && floor.projector.slide;
+  showMenu(S.name, pg ? '會議簡報：' + pg.q.title : S.sub, items, () => narrow ? f.c.clone().setY(f.c.y - S.h / 2) : f.c.clone().addScaledVector(f.right, S.w / 2 + .15), false, narrow);
+  if (kind === 'projector') slideFreeze = fz;
 }
 function deskScreenMenu(seatId) {   // close-up of someone's desk monitors
   const scr = floor.screens.get(seatId); if (!scr) return;

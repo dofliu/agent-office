@@ -19,20 +19,21 @@ window.AGENT_OFFICE_CONFIG = {
   // look（可省略）：hair 髮色、style 髮型（short / spiky / long / ponytail / lowtail / twintail / bun）、shirt 衣服顏色、
   //   skin 膚色、pants 褲子、shoes 鞋子、eyes 眼睛、brows 眉毛（預設同髮色）、glasses 眼鏡、badge 識別證（true 或顏色）、
   //   height 身高倍率（0.85～1.15）。舊版的 extra 配件（headband、mask、vest、cape、cloak、gourd、hairband）仍支援，但目前不用。
-  // 2026-11-03 會議 M202611031429y54f（員工形象）決議：暱稱改原創；同一個帳號在不同 TEAM 長相相同，只換制服顏色
-  //   （DofLab 白 #eef0f2、DofGM 深藍 #1f3a68、Pro 橘 #e8a33d、NCUT_PJ 綠 #2f7d6d）；不戴動漫風格配件。
+  // 外觀依 2026-11-03 會議 M202611031429y54f（員工形象）：同一個帳號在不同 TEAM 長相相同，只換制服顏色
+  //   （DofLab 白 #eef0f2、DofGM 深藍 #1f3a68、Pro 橘 #e8a33d、NCUT_PJ 綠 #2f7d6d），不戴配件。
+  // 暱稱由老師指定（2026-11-04），每個帳號 × TEAM 各一個名字。
   agents: [
-    { account: 'moredof@gmail.com',      team: 'DofLab',  nick: '晨禾',   look: { hair: '#2e2420', style: 'bun',      shirt: '#eef0f2', skin: '#f2d6c2' } },
-    { account: 'dofliu@gm.ncut.edu.tw',  team: 'DofLab',  nick: '岳衡',   look: { hair: '#1e2230', style: 'short',    shirt: '#eef0f2', skin: '#dcb48c' } },
-    { account: 'dof.liu@gmail.com',      team: 'DofLab',  nick: '拉氏',   look: { hair: '#3a2a20', style: 'ponytail', shirt: '#eef0f2', skin: '#e8c4a0' } },
-    { account: 'dofliu@ncut.edu.tw',     team: 'DofLab',  nick: '青嵐',   look: { hair: '#2b2b30', style: 'lowtail',  shirt: '#eef0f2', skin: '#d9b48f' } },
-    { account: 'ncutiae.liu@gmail.com',  team: 'DofLab',  nick: '驗算君', look: { hair: '#5a3b24', style: 'spiky',    shirt: '#eef0f2', skin: '#f0d2b4' } },
-    { account: 'moredof@gmail.com',      team: 'DofGM',   nick: '晨禾',   look: { hair: '#2e2420', style: 'bun',      shirt: '#1f3a68', skin: '#f2d6c2' } },
-    { account: 'dofliu@gm.ncut.edu.tw',  team: 'DofGM',   nick: '岳衡',   look: { hair: '#1e2230', style: 'short',    shirt: '#1f3a68', skin: '#dcb48c' } },
-    { account: 'dof.liu@gmail.com',      team: 'DofGM',   nick: '拉氏',   look: { hair: '#3a2a20', style: 'ponytail', shirt: '#1f3a68', skin: '#e8c4a0' } },
-    { account: 'dofliu@ncut.edu.tw',     team: 'DofGM',   nick: '青嵐',   look: { hair: '#2b2b30', style: 'lowtail',  shirt: '#1f3a68', skin: '#d9b48f' } },
-    { account: 'ncutiae.liu@gmail.com',  team: 'DofGM',   nick: '驗算君', look: { hair: '#5a3b24', style: 'spiky',    shirt: '#1f3a68', skin: '#f0d2b4' } },
-    { account: 'moredof@gmail.com',      team: 'Pro',     nick: '晨禾',   look: { hair: '#2e2420', style: 'bun',      shirt: '#e8a33d', skin: '#f2d6c2' } },
-    { account: 'dofliu@gm.ncut.edu.tw',  team: 'NCUT_PJ', nick: '岳衡',   look: { hair: '#1e2230', style: 'short',    shirt: '#2f7d6d', skin: '#dcb48c' } }
+    { account: 'moredof@gmail.com',      team: 'DofLab',  nick: '瑞弘',    look: { hair: '#2e2420', style: 'bun',      shirt: '#eef0f2', skin: '#f2d6c2' } },
+    { account: 'dofliu@gm.ncut.edu.tw',  team: 'DofLab',  nick: '小櫻',    look: { hair: '#1e2230', style: 'short',    shirt: '#eef0f2', skin: '#dcb48c' } },
+    { account: 'dof.liu@gmail.com',      team: 'DofLab',  nick: '阿翰',    look: { hair: '#3a2a20', style: 'ponytail', shirt: '#eef0f2', skin: '#e8c4a0' } },
+    { account: 'dofliu@ncut.edu.tw',     team: 'DofLab',  nick: '黃謙',    look: { hair: '#2b2b30', style: 'lowtail',  shirt: '#eef0f2', skin: '#d9b48f' } },
+    { account: 'ncutiae.liu@gmail.com',  team: 'DofLab',  nick: '小智',    look: { hair: '#5a3b24', style: 'spiky',    shirt: '#eef0f2', skin: '#f0d2b4' } },
+    { account: 'moredof@gmail.com',      team: 'DofGM',   nick: '小弘',    look: { hair: '#2e2420', style: 'bun',      shirt: '#1f3a68', skin: '#f2d6c2' } },
+    { account: 'dofliu@gm.ncut.edu.tw',  team: 'DofGM',   nick: '雛田',    look: { hair: '#1e2230', style: 'short',    shirt: '#1f3a68', skin: '#dcb48c' } },
+    { account: 'dof.liu@gmail.com',      team: 'DofGM',   nick: '小毅',    look: { hair: '#3a2a20', style: 'ponytail', shirt: '#1f3a68', skin: '#e8c4a0' } },
+    { account: 'dofliu@ncut.edu.tw',     team: 'DofGM',   nick: '彭帥',    look: { hair: '#2b2b30', style: 'lowtail',  shirt: '#1f3a68', skin: '#d9b48f' } },
+    { account: 'ncutiae.liu@gmail.com',  team: 'DofGM',   nick: '阿茂',    look: { hair: '#5a3b24', style: 'spiky',    shirt: '#1f3a68', skin: '#f0d2b4' } },
+    { account: 'moredof@gmail.com',      team: 'Pro',     nick: '杜夫',    look: { hair: '#2e2420', style: 'bun',      shirt: '#e8a33d', skin: '#f2d6c2' } },
+    { account: 'dofliu@gm.ncut.edu.tw',  team: 'NCUT_PJ', nick: '阿仁',    look: { hair: '#1e2230', style: 'short',    shirt: '#2f7d6d', skin: '#dcb48c' } }
   ]
 };

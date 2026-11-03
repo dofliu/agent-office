@@ -127,7 +127,16 @@
     // meetings
     const meetings = new Map();
     const mget = id => { if (!meetings.has(id)) meetings.set(id, { id, agenda: null, msgs: [], minutes: null }); return meetings.get(id); };
-    for (const f of Object.values(state.mfiles)) { const o = f.rec; if (!o || !o.meeting_id) continue; const mt = mget(o.meeting_id);
+    // meeting requests from agents (會議請求_<id>.json) and the teacher's decision on each
+    const reqs = new Map();
+    const rget = id => { if (!reqs.has(id)) reqs.set(id, { id, req: null, decisions: [] }); return reqs.get(id); };
+    for (const f of Object.values(state.mfiles)) { const o = f.rec; if (!o || !o.request_id) continue;
+      if (o.type === 'meeting_request') rget(o.request_id).req = { ...o, fileId: f.id, ts: tsOf(o.created, f) };
+      else if (o.type === 'request_decision') rget(o.request_id).decisions.push({ ...o, ts: tsOf(o.time, f) }); }
+    const rlist = [...reqs.values()].filter(r => r.req).map(r => {
+      r.decisions.sort((a, b) => a.ts - b.ts); r.decision = r.decisions[r.decisions.length - 1] || null;
+      r.status = r.decision ? r.decision.decision : 'pending'; return r; }).sort((a, b) => b.req.ts - a.req.ts);
+    for (const f of Object.values(state.mfiles)) { const o = f.rec; if (!o || !o.meeting_id || o.type === 'request_decision') continue; const mt = mget(o.meeting_id);
       if (o.type === 'agenda') mt.agenda = { ...o, fileId: f.id, viewUrl: f.viewUrl, ts: tsOf(o.created, f) };
       else if (o.type === 'message') mt.msgs.push({ ...o, fileId: f.id, ts: tsOf(o.time, f) });
       else if (o.type === 'minutes') mt.minutes = { ...o, fileId: f.id, ts: tsOf(o.time, f) }; }
@@ -170,7 +179,7 @@
       a.act = act;
     }
     const today = fmtDay.format(Date.now());
-    return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
+    return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), requests: rlist, pendingReqs: rlist.filter(r => r.status === 'pending'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
   }
 
   // ---------- render ----------
@@ -235,8 +244,8 @@
     if (openMeet && !drawerTyping()) renderMeetDrawer(m);
     if (adminOpen && !drawerTyping()) renderAdminDrawer(m);
     if (planOpen) renderPlanDrawer(m);
-    const ab = $('adminBtn'); if (ab) { const n = isAdmin ? m.awaiting.length : 0; ab.textContent = !isAdmin ? '管理登入' : n ? `待核准 ${n}` : '管理模式'; ab.classList.toggle('on', isAdmin); ab.classList.toggle('hot', n > 0); }
-    const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length; mb.textContent = n ? `會議 ${n}` : '會議'; mb.classList.toggle('hot', n > 0); }
+    const ab = $('adminBtn'); if (ab) { const n = isAdmin ? m.awaiting.length + m.pendingReqs.length : 0; ab.textContent = !isAdmin ? '管理登入' : n ? `待核准 ${n}` : '管理模式'; ab.classList.toggle('on', isAdmin); ab.classList.toggle('hot', n > 0); }
+    const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length, rq = m.pendingReqs.length; mb.textContent = (n ? `會議 ${n}` : '會議') + (rq ? `・請求 ${rq}` : ''); mb.classList.toggle('hot', n + rq > 0); }
   }
   // only pause redraws while the viewer is typing or picking; ticking a checkbox must redraw (attendee count, host list)
   const drawerTyping = () => { const ae = document.activeElement; return !!(ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && /^(text|search)$/.test(ae.type))) && $('drawerHost').contains(ae)); };
@@ -413,6 +422,40 @@
     c.note ? el('p', { class: 'c-note' }, c.note) : null,
     c.cmd.needs_approval && c.cmd.approval_reason ? el('p', { class: 'hint' }, '需要核准：' + c.cmd.approval_reason) : null,
     gateButtons(c));
+  // meeting requests from agents: the teacher approves (the Apps Script opens the meeting) or rejects them
+  let reqMsg = null;
+  const REQ_ST = { pending: ['st-awaiting_approval', '待核准'], approved: ['st-done', '已開會'], rejected: ['st-declined', '已駁回'] };
+  function reqItem(r, m) {
+    const q = r.req, att = q.attendees || [], st = REQ_ST[r.status] || REQ_ST.pending;
+    const mt = r.decision && r.decision.meeting_id ? m.meetings.find(x => x.id === r.decision.meeting_id) : null;
+    return el('li', {},
+      el('div', { class: 'c-row' }, el('span', { class: 'st ' + st[0] }, st[1]), el('b', {}, partyName(q.from)), el('b', {}, q.title || '(無標題)'), el('span', { class: 'muted' }, rel(q.ts))),
+      q.reason ? el('p', { class: 'c-note' }, '為什麼要開：' + q.reason) : null,
+      q.goal ? el('p', { class: 'hint' }, '要得到的結論：' + q.goal) : null,
+      att.length ? el('div', { class: 'chiplist' }, ...att.map(p => el('span', { class: 'mchip' }, partyName(p) + (p.team ? '·' + p.team : '')))) : null,
+      el('p', { class: 'hint' }, `建議主持人：${partyName(q.host || q.from)}　時限：${Number(q.hours) || 24} 小時`),
+      r.decision && r.decision.note ? el('p', { class: 'hint' }, '老師：' + r.decision.note) : null,
+      mt ? el('div', { class: 'm-row' }, el('button', { class: 'btn sm', type: 'button', onclick: () => { openMeet = mt.id; render(); } }, '看這場會議 ›')) : null,
+      isAdmin && r.status === 'pending' ? el('div', { class: 'm-row' },
+        armed('rq:' + r.id, '核准並開會', '確定開這場會？', () => decideReq(r, 'approved'), 'btn sm primary'),
+        armed('rr:' + r.id, '駁回', '確定駁回？', () => decideReq(r, 'rejected'))) : null,
+      reqMsg && reqMsg.id === r.id ? el('p', { class: 'm-status ' + (reqMsg.bad ? 'bad' : 'ok') }, reqMsg.text) : null);
+  }
+  async function decideReq(r, decision) {
+    if (!isAdmin) return;
+    try { const res = await api('decideMeetingRequest', { request_id: r.id, decision });
+      putFile(state.mfiles, res.file); if (res.meeting) putFile(state.mfiles, res.meeting); lsSet(LS_CACHE, JSON.stringify(state));
+      reqMsg = { id: r.id, text: decision === 'approved' ? '已開會，與會代理人下次排程會來發言。' : '已駁回，提出的代理人下次排程會看到。' }; }
+    catch (e) { reqMsg = { id: r.id, ...sendError(e) }; }
+    render();
+  }
+  function reqSection(m) {   // pending requests + the last few decided ones (within 7 days)
+    const recent = m.requests.filter(r => r.status === 'pending' || Date.now() - (r.decision ? r.decision.ts : r.req.ts) < 7 * 86400e3).slice(0, 8);
+    if (!recent.length) return null;
+    return el('div', { class: 'sect' }, el('h2', {}, '會議請求', m.pendingReqs.length ? el('span', { class: 'badge' }, String(m.pendingReqs.length)) : null),
+      el('p', { class: 'hint' }, '代理人覺得需要其他人一起討論時提出的。老師核准後才會變成正式會議。'),
+      el('ul', { class: 'clist' }, ...recent.map(r => reqItem(r, m))));
+  }
   const KIND_ZH = { opinion: '意見', question: '提問', answer: '回答', proposal: '提案', agree: '同意', disagree: '反對', info: '補充', instruction: '指示', action: '待辦' };
   const partyName = p => !p ? '—' : p.team === 'HUMAN' ? (p.name || '老師') : agentCfg(p.account, p.team) ? nickOf(p.account, p.team) : (p.name || String(p.account || '').split('@')[0] || '—');
   // All writes: POST to the Apps Script web app with the admin password. The script builds and names the files.
@@ -479,6 +522,7 @@
       body = el('div', {},
         el('p', { class: 'hint' }, '會議存在雲端「會議室」資料夾。受邀的代理人在自己的排程執行「雲端會議」時讀取並發言；主持人收尾時寫下結論並把待辦變成指令。'),
         isAdmin ? null : loginHint('要發起會議或以老師身分發言，'),
+        reqSection(m),
         items.length ? el('ul', { class: 'mlist' }, ...items) : el('p', { class: 'hint' }, isAdmin ? '還沒有會議。按「發起會議」開第一場。' : '還沒有會議。'));
     }
     host.replaceChildren(
@@ -526,6 +570,7 @@
     return el('div', {},
       ag.goal ? el('p', { class: 'r-content' }, ag.goal) : null,
       (ag.agenda || []).length ? el('ol', { class: 'agenda' }, ...(ag.agenda || []).map(t => el('li', {}, t))) : null,
+      ag.source_request ? el('p', { class: 'hint' }, `由 ${partyName(ag.requested_by)} 提出會議請求，老師核准後開會。`) : null,
       el('p', { class: 'hint' }, `主持人：${partyName(ag.host)}${ag.host && ag.host.team ? '·' + ag.host.team : ''}　截止：${isNaN(x.deadline) ? '—' : fmtFull.format(x.deadline)}`),
       el('div', { class: 'chiplist' }, ...att.map(p => el('span', { class: 'mchip' + (spoke(p) ? ' open' : '') }, (spoke(p) ? '✓ ' : '') + partyName(p) + (p.team ? '·' + p.team : '')))),
       mins,
@@ -618,6 +663,9 @@
       el('div', { class: 'sect' }, el('h2', {}, '待核准的指令', m && m.awaiting.length ? el('span', { class: 'badge' }, String(m.awaiting.length)) : null),
         el('p', { class: 'hint' }, '只有對外寄信、公開發布、花錢、以老師名義對外承諾的工作會停在這裡等你；其他工作代理人收到就做。'),
         m && m.awaiting.length ? el('ul', { class: 'clist' }, ...m.awaiting.map(c => cmdItem(c, partyName(c.cmd.to)))) : el('p', { class: 'hint' }, '目前沒有。')),
+      el('div', { class: 'sect' }, el('h2', {}, '待核准的會議請求', m && m.pendingReqs.length ? el('span', { class: 'badge' }, String(m.pendingReqs.length)) : null),
+        el('p', { class: 'hint' }, '代理人想找其他人開會時會提出請求；核准後系統依請求內容開會。'),
+        m && m.pendingReqs.length ? el('ul', { class: 'clist' }, ...m.pendingReqs.map(r => reqItem(r, m))) : el('p', { class: 'hint' }, '目前沒有。')),
       el('div', { class: 'm-row' }, el('button', { class: 'btn', type: 'button', onclick: () => { isAdmin = false; adminKey = ''; lsDel(LS_KEY); adminMsg = null; render(); } }, '登出管理模式')));
     else {
       const inp = el('input', { id: 'adminPass', type: 'password', autocomplete: 'current-password', placeholder: 'Apps Script 指令碼屬性 ADMIN_KEY 的值' });

@@ -157,6 +157,43 @@ const ACTIONS = {
     return { file: create_(FOLDERS.commands, '指令_' + cid + '_approval_' + t + '_' + rand4_() + '.json', obj) };
   },
 
+  // 老師核准／駁回代理人提出的會議請求（會議室/會議請求_<request_id>.json）。
+  // 核准時用請求內容建立正式議程（老師可改主題、時限、主持人、與會者），並記下 decision 檔。
+  decideMeetingRequest: req => {
+    const rid = str_(req.request_id, 40);
+    if (!/^R\d{14}[0-9a-z]{4}$/i.test(rid)) throw bad_('請求編號格式不對');
+    const decision = req.decision === 'rejected' ? 'rejected' : req.decision === 'approved' ? 'approved' : '';
+    if (!decision) throw bad_('decision 需為 approved 或 rejected');
+    const folder = DriveApp.getFolderById(FOLDERS.meetings);
+    if (folder.searchFiles('title contains "會議請求_' + rid + '_decision"').hasNext()) throw bad_('這個請求已經處理過了');
+    const it = folder.getFilesByName('會議請求_' + rid + '.json');
+    if (!it.hasNext()) throw bad_('找不到這個會議請求');
+    const r = JSON.parse(it.next().getBlob().getDataAsString('UTF-8').replace(/^﻿/, ''));
+    const t = now14_(), out = {};
+    let mid = null;
+    if (decision === 'approved') {
+      const attendees = (arr_(req.attendees, 30).length ? arr_(req.attendees, 30) : arr_(r.attendees, 30)).map(party_).filter(Boolean);
+      const from = party_(r.from);
+      if (from && !attendees.some(p => p.account === from.account && (p.team || '') === (from.team || ''))) attendees.unshift(from);
+      const title = str_(req.title, 60) || str_(r.title, 60);
+      if (!title || !attendees.length) throw bad_('請求缺主題或與會者');
+      const hours = Math.min(168, Math.max(1, Number(req.hours) || Number(r.hours) || 24));
+      mid = 'M' + t.slice(0, 12) + rand4_();
+      const agenda = {
+        type: 'agenda', meeting_id: mid, title: title, goal: str_(r.goal, 500),
+        agenda: arr_(r.agenda, 12).map(x => str_(x, 120)).filter(Boolean),
+        host: party_(req.host) || party_(r.host) || from || attendees[0], attendees: attendees,
+        created_by: '劉老師（看板，核准會議請求）', source_request: rid, requested_by: from,
+        created: t, deadline: fmt14_(new Date(Date.now() + hours * 3600000))
+      };
+      out.meeting = create_(FOLDERS.meetings, '會議_' + mid + '_agenda.json', agenda);
+    }
+    const obj = { type: 'request_decision', request_id: rid, by: { account: 'teacher', team: 'HUMAN', name: '劉老師' }, time: t,
+      decision: decision, meeting_id: mid, note: str_(req.note, 300) };
+    out.file = create_(FOLDERS.meetings, '會議請求_' + rid + '_decision_' + t + '_' + rand4_() + '.json', obj);
+    return out;
+  },
+
   // 移到垃圾桶（30 天內可在 Drive 還原）；只接受三個資料夾裡的檔案
   trash: req => {
     const trashed = [];

@@ -64,7 +64,9 @@ GitHub Pages：index.html ＋ js/*.js（靜態網頁，每 5 分鐘讀一次）
 | `js/app.js` | 讀資料、統計、圓框、側欄、會議／指令／管理 |
 | `js/office.js` | Three.js 3D 樓層、人物、螢幕、設備與互動 |
 | `apps-script/Code.gs` | Google Apps Script 資料來源（GET 讀、POST 寫） |
+| `apps-script/appsscript.json` | Apps Script 專案設定（固定完整 Drive 權限，避免只授權到讀取） |
 | `skills/` | 兩個代理人技能的副本（雲端紀錄、雲端會議） |
+| `promo/` | 導覽影片的原始檔（場景 HTML、分鏡、截圖），怎麼改見 [promo/README.md](promo/README.md) |
 
 ## 本機預覽
 

@@ -31,6 +31,7 @@
 | 2026-11-03 | 查證會議決議確實被執行（第9週教材 4 條指令都在進行中、辦公空間指令已完成）。依老師意見：技能改成跳過已結束的會議、摘要不提已完成的事、收件人從議程複製、網站工作只提方案；新增**核准關卡**（只限對外寄信、公開發布、花錢、對外承諾），看板可核准／駁回，`Code.gs` 加 `approveCommand`。修正小櫻核對規劃頁挑出的 3 個差異。 |
 | 2026-11-03 | 老師測試送指令出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」（授權只拿到讀取）：`Code.gs` 加 `authorize()`、新增 `apps-script/appsscript.json` 固定完整 Drive 權限，文件補上處理步驟。製作**導覽影片**（`promo/`，15 景約 1 分 52 秒，用真實畫面介紹介面、每間房間、會議→投票→裁示→改造的過程）；修正錄課棚 ON AIR 燈朝向。 |
 | 2026-11-03 | 依老師意見：2 小時內有工作紀錄或指令回報的代理人坐在座位、螢幕顯示該工作（以前 45 分鐘一過就去茶水間，大家都擠在那裡）；休息的人改成多半坐在座位、偶爾去茶水間。點房間、螢幕、人物、設備時鏡頭會飛過去。老師另外問到：攝影棚接影片發布技能上傳 YouTube、邀請其他帳號加入、電話亭開線上會議，記在 `roadmap.md` 待討論。 |
+| 2026-11-03 | 依老師意見：會議結論加**一鍵裁示**（核准執行／修正後核准／不通過，核准就派出指令，不用再到人物側欄下指令）；修正手機輸入密碼時畫面一直重繪、字被清掉的問題；3D 加**輕量模式**（1 倍解析度、不反鋸齒、每秒 24 張、螢幕少更新）與捲出畫面就暫停繪製，開頭偵測到太慢會提示。像素風平面版記在 `roadmap.md`。 |
 | 2026-11-03 | 加入**多間會議室與專案**：北側多 2 間 6 人小會議室，進行中的會議依人數分到 B+／會議室 2／會議室 3；新增專案（老師建立或核准代理人的專案請求），南側每個進行中專案一間專案辦公室，成員做專案的工作時才過去（老師選的方案）。看板加「專案」頁，下指令、發起會議可選專案；`Code.gs` 加 `createProject`、`setProjectStatus`、`decideProjectRequest`；兩個技能都更新。 |
 | 2026-11-03 | 加入**讀取密碼**（老師選方案 C）：Apps Script 設 `READ_KEY` 後，沒密碼只看得到公開精簡版（人物、狀態、數量；沒有內容與 email），看板右上「輸入讀取密碼」看完整內容。 |
 | 2026-11-03 | 加入**會議請求**：代理人需要別人一起決定時提出 `會議請求_<request_id>.json`，看板「會議」頁與管理面板可「核准並開會」或駁回，`Code.gs` 加 `decideMeetingRequest`，技能加格式 7、8 與步驟 D。 |
@@ -80,7 +81,8 @@ GitHub Pages：index.html
 | 工作紀錄 | 雲端紀錄 | `雲端紀錄_<yyyymmddhhmmss>_<4碼>.json` | `topic, content, last_time, account, team`（沒有 `type`） |
 | 議程 | 會議室 | `會議_<meeting_id>_agenda.json` | `type:"agenda", meeting_id, title, goal, agenda[], host, attendees[], created, deadline` |
 | 發言 | 會議室 | `會議_<meeting_id>_msg_<time>_<4碼>.json` | `type:"message", msg_id, from, time, reply_to, mentions[], kind, content` |
-| 結論 | 會議室 | `會議_<meeting_id>_minutes.json` | `type:"minutes", summary, decisions[], actions[{to,task,command_id}]`；有結論＝會議結束 |
+| 結論 | 會議室 | `會議_<meeting_id>_minutes.json` | `type:"minutes", summary, decisions[], actions[{to,task,command_id}]`；有結論＝會議結束；議程 `review:true` 時主持人不填 `command_id`、不派指令 |
+| 結論裁示 | 會議室 | `會議_<meeting_id>_decision_<time>_<4碼>.json` | `type:"minutes_decision", decision(approved/amended/rejected), note, actions[{to,task,command_id}]`；只由看板建立，核准時同時建立指令 |
 | 指令 | 指令 | `指令_<command_id>.json` | `type:"command", to, from, title, instruction, priority`，可選 `needs_approval, approval_reason` |
 | 回報 | 指令 | `指令_<command_id>_ack_<time>_<4碼>.json` | `type:"ack", by, status(received/in_progress/awaiting_approval/done/declined/blocked), note`；最新一筆＝目前狀態 |
 | 核准 | 指令 | `指令_<command_id>_approval_<time>_<4碼>.json` | `type:"approval", by(老師), decision(approved/rejected), note`；只由看板建立，最新一筆為準 |
@@ -99,6 +101,8 @@ GitHub Pages：index.html
 
 ## 5. 看板邏輯重點
 
+- **重繪與輸入**：資料同步、每 30 秒、視窗大小改變都會 `render()`；側欄在有輸入框聚焦時不重畫（`drawerTyping()`，含 password），密碼輸入中的字存在 `pwDraft`。手機跳出鍵盤會觸發 resize，所以這兩個保護缺一不可。
+- **效能**：`office.js` 的輕量模式（localStorage `cloudlog.lite` 或網址 `?lite=1`）；3D 捲出畫面（IntersectionObserver）或分頁隱藏時不畫。
 - **資料**：`app.js` 的 `sync()` 每 N 分鐘（預設 5）GET 一次 `config.endpoint`，localStorage 存一份快取（`agentoffice.cache.v1`）。
 - **人物狀態**（`office.js` 的 `classify()`）：依「最新一筆工作」判斷：`app.js` 的 `a.act` 取工作紀錄、該代理人的指令回報（ack）、會議發言三者中最新的一筆。最近 45 分鐘內在會議發過言 → 開會；最新工作超過 `idleHours`（預設 6）小時 → 閒置；`activeHours`（預設 2）到 6 小時 → 休息；45 分鐘到 2 小時 → 工作中（坐在座位，螢幕顯示那筆工作的主題、內容與時間，回報會標「回報指令・進行中」等）；45 分鐘內依關鍵字分成通話（視訊、電話、訪談、zoom…，去電話亭）、開會、錄製（錄影、錄音、旁白、拍攝、Shorts…，去錄課棚）、巡檢、報告，其餘為工作中。休息的人多半坐在座位喝東西，每 40～150 秒去茶水間用一次設備，約三成留下聊天，再回座位（老師 2026-11-03 反映大家都擠在茶水間，因此改成這樣）。門檻在 `config.js` 的 `activeHours`、`idleHours`，關鍵字是暫定值。
 - **樓層配置**（`buildFloor()`）：走廊南側是 `officeTeams` 各一間辦公室（每 4 人一組桌，自動加組），接著每個進行中專案一間專案辦公室（`buildTableRoom()`，8 人桌＋專案看板）；北側是 B+ 會議／試播室、會議室 2、會議室 3（`buildTableRoom()`，6 人桌＋牆上螢幕）、茶水間、錄課棚（`buildStudio()`，程式產生）、共用座位（有其他 TEAM 才出現）。`assignMeetRooms()` 把進行中的會議依與會人數分到 B+ 與兩間小會議室（超過 3 場的借用 B+），開會的人走到自己那場的房間（`meetRoomOf()`）；最新工作帶 `project_id` 的人在專案辦公室工作（`projRoomOf()`）；`drawRoomScreens()` 畫小會議室與專案看板。走廊兩端各一間電話亭（`buildBooth()`，屋頂燈綠＝空、紅＝使用中）。每個座位雙螢幕，桌子是電動升降桌（`addLift()`／`updateLift()`：工作中每 1～3 分鐘有 35% 機率站著，或用動作「站著工作」）。B+ 在 002 會議室上加了西牆看板牆（`drawKanban()`，即時顯示每位代理人的狀態）、東牆 1080p 試播投影（`drawTrial()`）與直立副螢幕；點這些螢幕鏡頭會轉到正面，選單可「打開規劃頁」。桌椅、白板、飲水機從 001 場景 glb 複製；會議室與茶水間直接用 002、004 的 glb，牆壓低到 1 m。
@@ -115,7 +119,7 @@ GitHub Pages：index.html
 
 - **Repo 改了不會自動生效。** 老師要把整份貼到 script.google.com 的專案，再「部署 → 管理部署作業 → 編輯 → 新版本」，網址才不變。改完記得提醒老師。
 - GET：讀三個資料夾裡最近 `MAX_DAYS`（120）天的 JSON；整份回應快取 60 秒，單檔內容依「檔案 ID＋更新時間」快取 6 小時。
-- POST 動作：`read`（讀完整內容，讀取或管理密碼皆可，不鎖、不清快取）、`ping`、`createMeeting`（可帶 `project_id`）、`postMessage`、`createCommand`（可帶 `needs_approval`、`project_id`）、`createProject`、`setProjectStatus`、`decideProjectRequest`、`approveCommand`、`decideMeetingRequest`（核准時依請求建立議程，已處理過的請求會拒絕）、`trash`、`retag`。全部需要指令碼屬性 `ADMIN_KEY`，並用 LockService 串行，完成後清掉整份回應的快取。`trash` 與 `retag` 只接受三個資料夾內的檔案。
+- POST 動作：`read`（讀完整內容，讀取或管理密碼皆可，不鎖、不清快取）、`ping`、`createMeeting`（可帶 `project_id`）、`postMessage`、`createCommand`（可帶 `needs_approval`、`project_id`）、`createProject`、`setProjectStatus`、`decideProjectRequest`、`decideMinutes`（裁示結論：approved 照結論、amended 用老師修正的待辦派指令、rejected 要寫原因；主持人已派過指令或已裁示過的會拒絕）、`approveCommand`、`decideMeetingRequest`（核准時依請求建立議程，已處理過的請求會拒絕）、`trash`、`retag`。全部需要指令碼屬性 `ADMIN_KEY`，並用 LockService 串行，完成後清掉整份回應的快取。`trash` 與 `retag` 只接受三個資料夾內的檔案。
 - 權限：`apps-script/appsscript.json` 固定 `oauthScopes` 為完整 Drive 權限，老師可貼到專案的 appsscript.json。2026-11-03 曾發生讀取正常、寫入出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」（授權只拿到讀取）；處理方式是在編輯器執行 `authorize()`、授權時全部勾選，再部署新版本。
 - 部署設定：執行身分「我」（moredof@gmail.com）、存取權「所有人」，所以 Apps Script 網址任何人都叫得到。
 - **讀取密碼**（2026-11-03 老師選方案 C）：指令碼屬性有 `READ_KEY` 時，GET 只回 `publicFeed_()` 的公開精簡版（`public: true`）：email 換成 `hashAcc_()` 雜湊碼（`#`＋SHA-256 前 10 碼），紀錄主題換成「工作紀錄」、會議主題換成「會議」、指令標題換成「指令」，內容、發言、結論、回報說明、請求理由清空，紀錄檔名只留時間、其他檔名去掉 email。完整內容用 POST `{action:'read', key}`（`READ_KEY` 或 `ADMIN_KEY` 都可）。沒設 `READ_KEY` 時 GET 回完整內容。完整版與精簡版分開快取（`feed`、`feedp`）。看板：`app.js` 的 `fetchFeed()`；`hashReady` 先把 `config.js` 的 email 算成同樣的雜湊碼，`agentCfg()` 才對得回暱稱；讀取密碼存在 localStorage `agentoffice.readKey`，密碼錯就清掉、退回精簡版。代理人與老師仍不要在紀錄、會議、指令裡寫機密或帶分享金鑰的連結。
@@ -128,6 +132,7 @@ GitHub Pages：index.html
 - 改資料格式時，技能、`Code.gs`、`app.js` 三處要一起改。
 - **核准關卡**（老師定的範圍）：只有對外寄信／傳訊息給組織外的人、公開發布、花錢、以老師名義對外承諾要等老師核准；做簡報、動畫、報告等一般工作不用核准，不要擴大範圍。
 - **會議結束後**：後續工作一律由結論建立的指令追蹤；技能會先從 `minutes` 檔名找出已結束的會議並跳過，摘要不再提已結束的會議與已完成的指令。主持人派指令時 `to` 要從議程原樣複製（曾經把 `dofliu` 打成 `doflui`）。
+- **結論裁示**（2026-11-03 加入）：議程 `review:true`（看板發起的會議與核准的會議請求預設都是）時，主持人寫結論但不派指令，等老師在看板按「核准執行／修正後核准／不通過」，由 `Code.gs` 的 `decideMinutes` 建指令；不通過時主持人依原因處理一次（例如提會議請求重新討論）。舊的、沒有 `review` 的會議照舊由主持人派指令。
 - **專案**（2026-11-03 加入）：代理人不能自己建專案，只能提專案請求（多人、跨數天的工作才提，條件同會議請求）。成員做專案的事時工作紀錄要帶 `project_id`；負責人追蹤專案指令，都完成但目標未達成就提會議請求；完成由老師按。「雲端紀錄」技能也加了可選的 `project_id`。
 - **會議請求**（2026-11-03 加入）：代理人只能提出請求、不能自己建議程；每人同時最多 1 個待決定的請求，同主題 7 天內被駁回不再提出。老師在看板「會議」頁或管理面板核准，`Code.gs` 才建議程。
 - **看板網站（本 repo）只有老師與維護者能改**：代理人只提方案或核對，由老師帶到 Claude Code session 實作。

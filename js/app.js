@@ -32,7 +32,9 @@
   let view = lsGet('cloudlog.view') === 'bubbles' ? 'bubbles' : 'office';
   let manage = false, armedKey = null, armTimer = 0, opBusy = '', opMsg = null, fixTeam = '';
   let adminKey = lsGet(LS_KEY) || '', isAdmin = !!adminKey, adminOpen = false, adminMsg = null, adminBusy = false;
-  let readKey = lsGet(LS_READ) || '', readMsg = null, readBusy = false;   // 讀取密碼：Apps Script 設了 READ_KEY 時，沒密碼只拿到公開精簡版
+  let readKey = lsGet(LS_READ) || '', readMsg = null, readBusy = false;
+  const pwDraft = { admin: '', read: '' };   // 打到一半的密碼：畫面重繪時保留，不會被清掉
+  let pwFocused = false;                       // 打開登入面板時只自動聚焦一次（手機上反覆聚焦會一直跳鍵盤、重繪）   // 讀取密碼：Apps Script 設了 READ_KEY 時，沒密碼只拿到公開精簡版
   let planOpen = false, openProj = null, projForm = null, projMsg = null;   // openProj: 'list' 或專案 ID
   let openMeet = null, meetForm = null, teacherMsg = {}, cmdDraft = {}, sendBusy = '', sendMsg = null;
   let syncing = false, lastAttempt = 0, openAccount = null, blocked = false;
@@ -132,7 +134,7 @@
     }).sort((a, b) => a.account.localeCompare(b.account) || a.team.label.localeCompare(b.team.label));
     // meetings
     const meetings = new Map();
-    const mget = id => { if (!meetings.has(id)) meetings.set(id, { id, agenda: null, msgs: [], minutes: null }); return meetings.get(id); };
+    const mget = id => { if (!meetings.has(id)) meetings.set(id, { id, agenda: null, msgs: [], minutes: null, rulings: [] }); return meetings.get(id); };
     // meeting requests from agents (會議請求_<id>.json) and the teacher's decision on each
     const reqs = new Map();
     const rget = id => { if (!reqs.has(id)) reqs.set(id, { id, req: null, decisions: [] }); return reqs.get(id); };
@@ -145,12 +147,17 @@
     for (const f of Object.values(state.mfiles)) { const o = f.rec; if (!o || !o.meeting_id || o.type === 'request_decision') continue; const mt = mget(o.meeting_id);
       if (o.type === 'agenda') mt.agenda = { ...o, fileId: f.id, viewUrl: f.viewUrl, ts: tsOf(o.created, f) };
       else if (o.type === 'message') mt.msgs.push({ ...o, fileId: f.id, ts: tsOf(o.time, f) });
-      else if (o.type === 'minutes') mt.minutes = { ...o, fileId: f.id, ts: tsOf(o.time, f) }; }
+      else if (o.type === 'minutes') mt.minutes = { ...o, fileId: f.id, ts: tsOf(o.time, f) };
+      else if (o.type === 'minutes_decision') mt.rulings.push({ ...o, ts: tsOf(o.time, f) }); }
     const mlist = [...meetings.values()].filter(x => x.agenda || x.msgs.length).map(x => {
       x.msgs.sort((a, b) => a.ts - b.ts);
       x.title = (x.agenda && x.agenda.title) || x.id; x.open = !x.minutes;
       x.deadline = x.agenda ? parseTime14(x.agenda.deadline || '') : NaN; x.overdue = x.open && !isNaN(x.deadline) && Date.now() > x.deadline;
       x.lastTs = Math.max(x.agenda ? x.agenda.ts : 0, ...x.msgs.map(q => q.ts), x.minutes ? x.minutes.ts : 0);
+      // 結論要老師裁示：議程 review 為 true、主持人沒自己派指令；最新一筆裁示為準
+      x.rulings.sort((a, b) => a.ts - b.ts); x.ruling = x.rulings[x.rulings.length - 1] || null;
+      x.review = !!(x.agenda && x.agenda.review) && !!x.minutes && !(x.minutes.actions || []).some(a => a.command_id);
+      x.awaitingRuling = x.review && !x.ruling;
       return x; }).sort((a, b) => (b.open - a.open) || (b.lastTs - a.lastTs));
     // commands
     const cmds = new Map();
@@ -205,7 +212,7 @@
       a.act = act;
     }
     const today = fmtDay.format(Date.now());
-    return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), requests: rlist, pendingReqs: rlist.filter(r => r.status === 'pending'), projects: plist, projReqs: pqlist, pendingProjReqs: pqlist.filter(r => r.status === 'pending'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
+    return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), awaitingRulings: mlist.filter(x => x.awaitingRuling), requests: rlist, pendingReqs: rlist.filter(r => r.status === 'pending'), projects: plist, projReqs: pqlist, pendingProjReqs: pqlist.filter(r => r.status === 'pending'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
   }
 
   // ---------- render ----------
@@ -273,12 +280,12 @@
     if (planOpen) renderPlanDrawer(m);
     if (openProj && !drawerTyping()) renderProjDrawer(m);
     const rb = $('readBtn'); if (rb) rb.hidden = !state.public;
-    const ab = $('adminBtn'); if (ab) { const n = isAdmin ? m.awaiting.length + m.pendingReqs.length + m.pendingProjReqs.length : 0; ab.textContent = !isAdmin ? '管理登入' : n ? `待核准 ${n}` : '管理模式'; ab.classList.toggle('on', isAdmin); ab.classList.toggle('hot', n > 0); }
+    const ab = $('adminBtn'); if (ab) { const n = isAdmin ? m.awaiting.length + m.pendingReqs.length + m.pendingProjReqs.length + m.awaitingRulings.length : 0; ab.textContent = !isAdmin ? '管理登入' : n ? `待核准 ${n}` : '管理模式'; ab.classList.toggle('on', isAdmin); ab.classList.toggle('hot', n > 0); }
     const pb = $('projBtn'); if (pb) { const n = m.projects.filter(x => x.status === 'active').length, rq = m.pendingProjReqs.length; pb.textContent = (n ? `專案 ${n}` : '專案') + (rq ? `・請求 ${rq}` : ''); pb.classList.toggle('hot', rq > 0); }
-    const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length, rq = m.pendingReqs.length; mb.textContent = (n ? `會議 ${n}` : '會議') + (rq ? `・請求 ${rq}` : ''); mb.classList.toggle('hot', n + rq > 0); }
+    const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length, rq = m.pendingReqs.length, rv = m.awaitingRulings.length; mb.textContent = (n ? `會議 ${n}` : '會議') + (rq ? `・請求 ${rq}` : '') + (rv ? `・待裁示 ${rv}` : ''); mb.classList.toggle('hot', n + rq + rv > 0); }
   }
   // only pause redraws while the viewer is typing or picking; ticking a checkbox must redraw (attendee count, host list)
-  const drawerTyping = () => { const ae = document.activeElement; return !!(ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && /^(text|search)$/.test(ae.type))) && $('drawerHost').contains(ae)); };
+  const drawerTyping = () => { const ae = document.activeElement; return !!(ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && /^(text|search|password|number)$/.test(ae.type))) && $('drawerHost').contains(ae)); };
   function layoutOffice() {
     const o = $('office'); const phone = window.innerWidth < 620;
     if (document.body.classList.contains('focus')) { o.style.setProperty('--oh', (window.innerHeight - 8) + 'px'); return; }
@@ -351,7 +358,7 @@
   // ---------- drawer ----------
   let lastFocus = null;
   function openDrawer(key) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openMeet = null; openProj = null; sendMsg = null; openAccount = key; freshSet.delete(key); render(); }
-  function openAdmin() { lastFocus = document.activeElement; planOpen = false; openAccount = null; openMeet = null; openProj = null; adminOpen = true; adminMsg = null; render(); }
+  function openAdmin() { pwFocused = false; lastFocus = document.activeElement; planOpen = false; openAccount = null; openMeet = null; openProj = null; adminOpen = true; adminMsg = null; render(); }
   function openMeetings(id) { lastFocus = document.activeElement; adminOpen = false; planOpen = false; openAccount = null; openProj = null; openMeet = id || 'list'; sendMsg = null; render(); }
   function closeDrawer() {
     adminOpen = false; planOpen = false; openAccount = null; openMeet = null; openProj = null; projForm = null; meetForm = null; sendMsg = null; manage = false; armedKey = null; opMsg = null; fixTeam = ''; $('drawerHost').replaceChildren();
@@ -554,7 +561,7 @@
     else if (x) body = meetDetail(x, m);
     else {
       const items = m.meetings.slice(0, 20).map(q => el('li', {}, el('button', { class: 'mrow', type: 'button', onclick: () => { openMeet = q.id; render(); } },
-        el('span', { class: 'st ' + (q.open ? (q.overdue ? 'st-blocked' : 'st-in_progress') : 'st-done') }, q.open ? (q.overdue ? '已過截止' : '進行中') : '已結束'),
+        el('span', { class: 'st ' + (q.open ? (q.overdue ? 'st-blocked' : 'st-in_progress') : q.awaitingRuling ? 'st-awaiting_approval' : 'st-done') }, q.open ? (q.overdue ? '已過截止' : '進行中') : q.awaitingRuling ? '待裁示' : '已結束'),
         el('b', {}, q.title), el('span', { class: 'muted' }, `${q.msgs.length} 則 · ${rel(q.lastTs)}`))));
       body = el('div', {},
         el('p', { class: 'hint' }, '會議存在雲端「會議室」資料夾。受邀的代理人在自己的排程執行「雲端會議」時讀取並發言；主持人收尾時寫下結論並把待辦變成指令。'),
@@ -575,6 +582,58 @@
     host.querySelector('.d-body').scrollTop = scroll;
     if (!host.contains(document.activeElement)) closeBtn.focus();
   }
+  // ---------- 會議結論裁示：核准執行／修正後核准／不通過（議程 review 為 true 的會議）----------
+  const RULE_ZH = { approved: '核准執行', amended: '修正後核准', rejected: '不通過' };
+  const ruleDraft = {};   // meeting_id -> { mode: null|'amend'|'reject', acts: [{to: key, task}], note }
+  function rulingPanel(x, m) {
+    const att = (x.agenda && x.agenda.attendees) || [];
+    const keyOf = p => (m.accounts.find(a => isMe(p, a)) || {}).key || '';
+    const d = ruleDraft[x.id] || (ruleDraft[x.id] = { mode: null, acts: (x.minutes.actions || []).map(a => ({ to: keyOf(a.to), task: a.task || '' })), note: '' });
+    const busy = sendBusy ? '' : null;
+    const status = sendMsg && sendMsg.where === 'rule:' + x.id ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null;
+    const noteBox = (ph) => { const t = el('textarea', { id: 'rnote', rows: '2', placeholder: ph }); t.value = d.note; t.addEventListener('input', () => { d.note = t.value; }); return t; };
+    if (d.mode === 'amend') {
+      const who = (k, i) => { const sel = el('select', { 'aria-label': `第 ${i + 1} 項的負責人` }, el('option', { value: '' }, '選負責人'),
+        ...m.accounts.map(a => { const o = el('option', { value: a.key }, `${a.nick} · ${a.team ? a.team.label : ''}${att.some(p => isMe(p, a)) ? '' : '（未與會）'}`); if (a.key === k) o.selected = true; return o; }));
+        sel.addEventListener('change', () => { d.acts[i].to = sel.value; }); return sel; };
+      const rows = d.acts.map((a, i) => { const t = el('textarea', { rows: '2', 'aria-label': `第 ${i + 1} 項要做的事` }); t.value = a.task; t.addEventListener('input', () => { a.task = t.value; });
+        return el('div', { class: 'rule-act' }, el('div', { class: 'm-row' }, el('b', {}, `${i + 1}.`), who(a.to, i),
+          el('button', { class: 'btn sm', type: 'button', onclick: () => { d.acts.splice(i, 1); render(); } }, '刪除')), t); });
+      return el('div', { class: 'sect cmdbox' }, el('h2', {}, '修正後核准'),
+        el('p', { class: 'hint' }, '改負責人或內容、刪掉或新增待辦；送出後每一項都會變成一條指令。'),
+        ...rows,
+        el('div', { class: 'm-row' }, el('button', { class: 'btn sm', type: 'button', onclick: () => { d.acts.push({ to: '', task: '' }); render(); } }, '＋ 新增一項')),
+        el('label', { for: 'rnote' }, '給大家的補充（會附在每條指令後面，可空白）'), noteBox('例如：週五前完成，簡報用 Forest 風格'),
+        el('div', { class: 'm-row' }, el('button', { class: 'btn sm primary', type: 'button', disabled: busy, onclick: () => sendRuling(x, m, 'amended') }, sendBusy || '送出修正並核准'),
+          el('button', { class: 'btn sm', type: 'button', onclick: () => { d.mode = null; render(); } }, '取消')), status);
+    }
+    if (d.mode === 'reject') return el('div', { class: 'sect cmdbox' }, el('h2', {}, '不通過'),
+      el('label', { for: 'rnote' }, '原因（主持人會依原因處理，例如重新討論）'), noteBox('例如：預算太高，請改成只用現有設備的方案再討論一次'),
+      el('div', { class: 'm-row' }, el('button', { class: 'btn sm danger', type: 'button', disabled: busy, onclick: () => sendRuling(x, m, 'rejected') }, sendBusy || '確定不通過'),
+        el('button', { class: 'btn sm', type: 'button', onclick: () => { d.mode = null; render(); } }, '取消')), status);
+    const n = (x.minutes.actions || []).length;
+    return el('div', { class: 'sect cmdbox' }, el('h2', {}, '老師裁示'),
+      el('p', { class: 'hint' }, n ? `核准後，上面 ${n} 項待辦會各自變成一條指令，交給負責的人開始執行。` : '結論沒有列出待辦；要派工請按「修正後核准」新增。'),
+      el('div', { class: 'm-row' },
+        n ? armed('ra:' + x.id, '核准執行', `確定派出 ${n} 條指令？`, () => sendRuling(x, m, 'approved'), 'btn sm primary') : null,
+        el('button', { class: 'btn sm', type: 'button', onclick: () => { d.mode = 'amend'; sendMsg = null; render(); } }, '修正後核准…'),
+        el('button', { class: 'btn sm danger', type: 'button', onclick: () => { d.mode = 'reject'; sendMsg = null; render(); } }, '不通過…')), status);
+  }
+  async function sendRuling(x, m, decision) {
+    const d = ruleDraft[x.id]; if (!isAdmin || sendBusy || !d) return;
+    const fail = t => { sendMsg = { where: 'rule:' + x.id, bad: true, text: t }; render(); };
+    const acts = d.acts.map(a => ({ to: partyOfKey(m, a.to), task: a.task.trim() }));
+    if (decision === 'amended' && (!acts.length || acts.some(a => !a.to || !a.task))) return fail('每一項都要選負責人並寫要做的事（不要的請刪除）。');
+    if (decision === 'rejected' && !d.note.trim()) return fail('請寫不通過的原因。');
+    if (document.activeElement) document.activeElement.blur();
+    sendBusy = '送出中…'; sendMsg = null; render();
+    try { const r = await api('decideMinutes', { meeting_id: x.id, decision, note: d.note.trim(), actions: decision === 'amended' ? acts : undefined });
+      putFile(state.mfiles, r.file); for (const c of r.commands || []) putFile(state.cfiles, c); lsSet(LS_CACHE, JSON.stringify(state));
+      delete ruleDraft[x.id];
+      sendMsg = { where: x.id, text: decision === 'rejected' ? '已標為不通過，主持人下次排程會看到原因。' : `已派出 ${(r.commands || []).length} 條指令，負責的人下次排程開始執行。` }; }
+    catch (e) { sendMsg = { where: 'rule:' + x.id, ...sendError(e) }; }
+    sendBusy = ''; render();
+  }
   function meetDetail(x, m) {
     const ag = x.agenda || {};
     const att = (ag.attendees || []);
@@ -592,13 +651,16 @@
     });
     const mins = x.minutes ? el('div', { class: 'minutes' }, el('h2', {}, '會議結論'), el('p', { class: 'r-content' }, x.minutes.summary || ''),
       (x.minutes.decisions || []).length ? el('ul', {}, ...(x.minutes.decisions || []).map(t => el('li', {}, t))) : null,
-      (x.minutes.actions || []).length ? el('ul', { class: 'clist' }, ...(x.minutes.actions || []).map(ac => {
+      x.ruling ? el('p', { class: 'hint ' + (x.ruling.decision === 'rejected' ? 'warn' : '') }, `老師裁示：${RULE_ZH[x.ruling.decision] || x.ruling.decision}（${fmtFull.format(x.ruling.ts).slice(5)}）${x.ruling.note ? '　' + x.ruling.note : ''}`) : null,
+      (((x.ruling && x.ruling.actions) || x.minutes.actions || [])).length ? el('ul', { class: 'clist' }, ...(((x.ruling && x.ruling.decision !== 'rejected' && x.ruling.actions) || x.minutes.actions || [])).map(ac => {
         const c = m.commands.find(cc => cc.id === ac.command_id);
-        if (!c) return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st st-new' }, '未建立'), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || '')));
+        if (!c) return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st ' + (x.awaitingRuling ? 'st-awaiting_approval' : x.ruling && x.ruling.decision === 'rejected' ? 'st-declined' : 'st-new') }, x.awaitingRuling ? '待裁示' : x.ruling && x.ruling.decision === 'rejected' ? '不執行' : '未建立'), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || '')));
         const known = m.accounts.some(a => isMe(c.cmd.to, a));
         return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st st-' + c.view }, ST_ZH[c.view] || c.view), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || '')),
           !known ? el('p', { class: 'hint warn' }, `收件人 ${c.cmd.to && c.cmd.to.account} 不在代理人名單裡（可能打錯），對方可能收不到。`) : null,
-          gateButtons(c)); })) : null) : null;
+          gateButtons(c)); })) : null,
+      !x.open && sendMsg && sendMsg.where === x.id ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null,
+      x.awaitingRuling && isAdmin ? rulingPanel(x, m) : x.awaitingRuling ? el('p', { class: 'hint' }, '結論等老師裁示，核准後才會派出指令。') : null) : null;
     const draft = teacherMsg[x.id] || (teacherMsg[x.id] = { text: '', kind: 'opinion', at: new Set() });
     const tx = el('textarea', { id: 'tmsg', rows: '3', placeholder: '以劉老師身分發言，例如補充方向或指名某位代理人回答' }); tx.value = draft.text;
     tx.addEventListener('input', () => { draft.text = tx.value; });
@@ -644,6 +706,7 @@
     const act = m.projects.filter(x => x.status === 'active');
     const pj = el('select', { id: 'mproj' }, el('option', { value: '' }, '不屬於專案'), ...act.map(x => { const o = el('option', { value: x.id }, x.title); if (x.id === f.project) o.selected = true; return o; }));
     pj.addEventListener('change', () => { f.project = pj.value; });
+    const rev = el('input', { id: 'mrev', type: 'checkbox' }); rev.checked = f.review !== false; rev.addEventListener('change', () => { f.review = rev.checked; });
     return el('div', { class: 'form' },
       el('label', { for: 'mt' }, '主題'), inp('mt', '例如：離岸風電課程教材分工', 'title', 40),
       el('label', { for: 'mg' }, '這場會要得到什麼'), area('mg', '例如：決定下週三份教材由誰負責、交付格式', 'goal', 2),
@@ -655,6 +718,7 @@
       el('label', { for: 'mhost' }, '主持人（負責收尾、寫結論）'), hostSel,
       el('label', { for: 'mhrs' }, '截止'), hrs,
       act.length ? el('label', { for: 'mproj' }, '屬於哪個專案（可不選）') : null, act.length ? pj : null,
+      el('label', { class: 'ck', for: 'mrev' }, rev, '結論要我裁示後才開始執行（核准／修正／不通過）'),
       el('div', { class: 'm-row' }, el('button', { class: 'btn primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => createMeeting(m) }, sendBusy || '建立會議')),
       sendMsg && sendMsg.where === 'form' ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null);
   }
@@ -666,7 +730,7 @@
     const party = k => { const a = m.accounts.find(q => q.key === k); return a ? { account: a.account, team: a.team ? a.team.label : null } : null; };
     sendBusy = '建立中…'; sendMsg = null; render();
     try { const r = await api('createMeeting', { title: f.title.trim(), goal: f.goal.trim(), agenda: f.agenda.split('\n').map(x => x.trim()).filter(Boolean),
-        host: party(f.host || [...f.who][0]), attendees: [...f.who].map(party).filter(Boolean), hours: f.hours, project_id: f.project || null });
+        host: party(f.host || [...f.who][0]), attendees: [...f.who].map(party).filter(Boolean), hours: f.hours, project_id: f.project || null, review: f.review !== false });
       putFile(state.mfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); const id = r.file.data.meeting_id; meetForm = null; openMeet = id; sendMsg = { where: id, text: '會議已建立。受邀代理人的排程下次執行時會開始發言。' }; }
     catch (e) { sendMsg = { where: 'form', ...sendError(e) }; }
     sendBusy = ''; render();
@@ -709,25 +773,30 @@
       el('div', { class: 'sect' }, el('h2', {}, '待核准的會議請求', m && m.pendingReqs.length ? el('span', { class: 'badge' }, String(m.pendingReqs.length)) : null),
         el('p', { class: 'hint' }, '代理人想找其他人開會時會提出請求；核准後系統依請求內容開會。'),
         m && m.pendingReqs.length ? el('ul', { class: 'clist' }, ...m.pendingReqs.map(r => reqItem(r, m))) : el('p', { class: 'hint' }, '目前沒有。')),
+      el('div', { class: 'sect' }, el('h2', {}, '待裁示的會議結論', m && m.awaitingRulings.length ? el('span', { class: 'badge' }, String(m.awaitingRulings.length)) : null),
+        m && m.awaitingRulings.length ? el('ul', { class: 'mlist' }, ...m.awaitingRulings.map(q => el('li', {}, el('button', { class: 'mrow', type: 'button', onclick: () => openMeetings(q.id) },
+          el('span', { class: 'st st-awaiting_approval' }, '待裁示'), el('b', {}, q.title), el('span', { class: 'muted' }, `${(q.minutes.actions || []).length} 項待辦`))))) : el('p', { class: 'hint' }, '目前沒有。')),
       el('div', { class: 'sect' }, el('h2', {}, '待核准的專案請求', m && m.pendingProjReqs.length ? el('span', { class: 'badge' }, String(m.pendingProjReqs.length)) : null),
         m && m.pendingProjReqs.length ? el('ul', { class: 'clist' }, ...m.pendingProjReqs.map(r => projReqItem(r, m))) : el('p', { class: 'hint' }, '目前沒有。')),
       el('div', { class: 'm-row' }, el('button', { class: 'btn', type: 'button', onclick: () => { isAdmin = false; adminKey = ''; lsDel(LS_KEY); adminMsg = null; render(); } }, '登出管理模式')));
     else {
       const inp = el('input', { id: 'adminPass', type: 'password', autocomplete: 'current-password', placeholder: 'Apps Script 指令碼屬性 ADMIN_KEY 的值' });
+      inp.value = pwDraft.admin; inp.addEventListener('input', () => { pwDraft.admin = inp.value; });
       const go = async () => {
         if (!inp.value || adminBusy) return; adminBusy = true; adminMsg = null; const prev = adminKey; adminKey = inp.value;
-        try { await api('ping', {}); isAdmin = true; lsSet(LS_KEY, adminKey); adminMsg = { text: '已進入管理模式。' }; }
+        try { await api('ping', {}); isAdmin = true; lsSet(LS_KEY, adminKey); pwDraft.admin = ''; adminMsg = { text: '已進入管理模式。' }; }
         catch (e) { adminKey = prev; adminMsg = { bad: true, text: apiMsg(e) }; }
         adminBusy = false; render();
       };
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
       const rinp = el('input', { id: 'readPass', type: 'password', autocomplete: 'off', placeholder: 'Apps Script 指令碼屬性 READ_KEY 的值' });
+      rinp.value = pwDraft.read; rinp.addEventListener('input', () => { pwDraft.read = rinp.value; });
       const rgo = async () => {
         if (!rinp.value || readBusy) return; readBusy = true; readMsg = null; render();
         const prev = readKey; readKey = rinp.value;
         try { const r = await fetch(CFG.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'read', key: readKey }) });
           const d = await r.json(); if (d.error) throw Object.assign(new Error(d.error), { code: d.error });
-          lsSet(LS_READ, readKey); readMsg = { text: '已顯示完整內容。這個瀏覽器會記住讀取密碼。' }; readBusy = false; sync(); }
+          lsSet(LS_READ, readKey); pwDraft.read = ''; readMsg = { text: '已顯示完整內容。這個瀏覽器會記住讀取密碼。' }; readBusy = false; sync(); }
         catch (e) { readKey = prev; readMsg = { bad: true, text: e.code === 'wrong_key' ? '讀取密碼不對。' : '連不上資料來源：' + (e.message || e) }; readBusy = false; render(); }
       };
       rinp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rgo(); } });
@@ -749,7 +818,7 @@
       el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'aTitle' },
         el('div', { class: 'd-head' }, el('div', { class: 'd-title' }, el('span', { class: 'r-topic', id: 'aTitle' }, isAdmin || !state.public ? '管理模式' : '登入'), el('span', { class: 'sub' }, isAdmin ? '已登入' : state.public ? '公開精簡版' : '未登入')), el('div', { class: 'd-tools' }, closeBtn)),
         el('div', { class: 'd-body' }, body, adminMsg ? el('p', { class: 'm-status ' + (adminMsg.bad ? 'bad' : 'ok') }, adminMsg.text) : null)));
-    const f = host.querySelector('#adminPass'); if (f && !host.contains(document.activeElement)) f.focus();
+    if (!pwFocused) { pwFocused = true; const f = host.querySelector(state.public && !isAdmin ? '#readPass' : '#adminPass'); if (f && !host.contains(document.activeElement)) f.focus(); }
   }
   // ---------- 專案：多人、長期的工作，底下掛指令與會議（指令資料夾/專案_<id>.json）----------
   const PROJ_ST = { active: ['st-in_progress', '進行中'], paused: ['st-received', '暫停'], done: ['st-done', '完成'] };

@@ -1,0 +1,5 @@
+raw/
+work/
+preview/
+*.mp4
+__pycache__/

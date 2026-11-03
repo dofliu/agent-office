@@ -29,6 +29,7 @@
 | 2026-11-03 | 老師**核准 B+ 與 D**，其他項目暫緩；規劃頁狀態改為「已裁示」。 |
 | 2026-11-03 | 補齊 GitHub 文件：重寫 `README.md`，新增 `docs/usage.md`（使用說明）、`docs/self-host.md`（別人如何建立自己的看板）、`docs/privacy.md`（公開範圍與密碼），以及空白設定範本 `js/config.example.js`。老師確認：開發期間**維持公開讀取、暫不加讀取密碼**，只要文件說明清楚。 |
 | 2026-11-03 | 查證會議決議確實被執行（第9週教材 4 條指令都在進行中、辦公空間指令已完成）。依老師意見：技能改成跳過已結束的會議、摘要不提已完成的事、收件人從議程複製、網站工作只提方案；新增**核准關卡**（只限對外寄信、公開發布、花錢、對外承諾），看板可核准／駁回，`Code.gs` 加 `approveCommand`。修正小櫻核對規劃頁挑出的 3 個差異。 |
+| 2026-11-03 | 老師測試送指令出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」（授權只拿到讀取）：`Code.gs` 加 `authorize()`、新增 `apps-script/appsscript.json` 固定完整 Drive 權限，文件補上處理步驟。製作**導覽影片**（`promo/`，15 景約 1 分 52 秒，用真實畫面介紹介面、每間房間、會議→投票→裁示→改造的過程）；修正錄課棚 ON AIR 燈朝向。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
 
@@ -119,6 +120,7 @@ GitHub Pages：index.html
 ## 8. 開發與測試
 
 - 對外文件在 `README.md` 與 `docs/`（使用說明、自架、隱私）。新增功能或改設定欄位時，記得一併更新這些文件與 `js/config.example.js`。
+- 導覽影片原始檔在 `promo/`（場景 HTML 由 `promo/build.py` 產生，渲染用 intro-video 技能）。畫面改版很大時再重拍，步驟見 `promo/README.md`；重拍要保留 email 與分享連結的模糊。
 
 - 本機預覽：`python3 -m http.server`（repo 根目錄），開 `/index.html`。
 - 沒有真資料時，可以用 Playwright 的 `page.route` 攔截 `config.js`、Apps Script 網址（GET 回假 feed、POST 回假結果）與 jsDelivr 的 three.js（改指向本機 node_modules）。WebGL 在無頭 Chromium 用 `--use-gl=swiftshader`。

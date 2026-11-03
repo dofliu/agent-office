@@ -1,0 +1,112 @@
+{
+ "fps": 30,
+ "width": 1920,
+ "height": 1080,
+ "xfade": 0.6,
+ "scenes": [
+  {
+   "file": "i01_open.html",
+   "duration": 9,
+   "transition": "fade"
+  },
+  {
+   "file": "i02_team.html",
+   "duration": 8,
+   "transition": "smoothleft"
+  },
+  {
+   "file": "i03_ui.html",
+   "duration": 9,
+   "transition": "circleopen"
+  },
+  {
+   "file": "i04_fly.html",
+   "duration": 14,
+   "transition": "fade"
+  },
+  {
+   "file": "i05_office.html",
+   "duration": 10,
+   "transition": "fade"
+  },
+  {
+   "file": "i06_screen.html",
+   "duration": 10,
+   "transition": "smoothleft"
+  },
+  {
+   "file": "i07_panel.html",
+   "duration": 9,
+   "transition": "smoothup"
+  },
+  {
+   "file": "i08_circle.html",
+   "duration": 10,
+   "transition": "circleopen"
+  },
+  {
+   "file": "i09_interact.html",
+   "duration": 10,
+   "transition": "smoothleft"
+  },
+  {
+   "file": "i10_states.html",
+   "duration": 6,
+   "transition": "fade"
+  },
+  {
+   "file": "i11_call.html",
+   "duration": 8,
+   "transition": "smoothleft"
+  },
+  {
+   "file": "i12_meet.html",
+   "duration": 10,
+   "transition": "fade"
+  },
+  {
+   "file": "i13_proposals.html",
+   "duration": 8,
+   "transition": "fadeblack"
+  },
+  {
+   "file": "i14_vote.html",
+   "duration": 8,
+   "transition": "fade"
+  },
+  {
+   "file": "i15_decide.html",
+   "duration": 9,
+   "transition": "circleopen"
+  },
+  {
+   "file": "i16_beforeafter.html",
+   "duration": 9,
+   "transition": "smoothleft"
+  },
+  {
+   "file": "i17_bplus.html",
+   "duration": 11,
+   "transition": "fade"
+  },
+  {
+   "file": "i18_studio.html",
+   "duration": 10,
+   "transition": "smoothleft"
+  },
+  {
+   "file": "i19_booth.html",
+   "duration": 9,
+   "transition": "fade"
+  },
+  {
+   "file": "i20_loop.html",
+   "duration": 7,
+   "transition": "fade"
+  },
+  {
+   "file": "i21_end.html",
+   "duration": 8
+  }
+ ]
+}

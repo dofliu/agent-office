@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>結尾</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#070d17}
+body{font-family:"Noto Sans TC","Noto Sans CJK TC","WenQuanYi Zen Hei","PingFang TC","Microsoft JhengHei",sans-serif;color:#e8eef7;position:relative;-webkit-font-smoothing:antialiased}
+.bg{position:absolute;inset:0;background:
+ radial-gradient(670px 1421px at 24% 18%,rgba(45,212,191,.14),transparent 62%),
+ radial-gradient(626px 1344px at 78% 82%,rgba(139,92,246,.15),transparent 60%),
+ linear-gradient(160deg,#0d1b2e 0%,#070d17 58%,#05070d 100%)}
+.aur{position:absolute;width:1498px;height:1498px;border-radius:50%;filter:blur(90px);opacity:.5;mix-blend-mode:screen}
+.aur.a{background:radial-gradient(circle,rgba(45,212,191,.32),transparent 62%);left:-24%;top:-30%;animation:drift1 22s ease-in-out infinite alternate}
+.aur.b{background:radial-gradient(circle,rgba(139,92,246,.30),transparent 62%);right:-27%;bottom:-32%;animation:drift2 26s ease-in-out infinite alternate}
+@keyframes drift1{to{transform:translate(150px,90px) scale(1.12)}}
+@keyframes drift2{to{transform:translate(-130px,-80px) scale(1.08)}}
+.grid{position:absolute;inset:0;opacity:.05;background-image:linear-gradient(rgba(232,238,247,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(232,238,247,.5) 1px,transparent 1px);background-size:64px 64px}
+.vig{position:absolute;inset:0;background:radial-gradient(896px 1786px at 50% 46%,transparent 58%,rgba(0,0,0,.5) 100%);pointer-events:none;z-index:6}
+.stage{position:absolute;inset:0;z-index:4;animation:cam var(--dur) ease-in-out both}
+@keyframes cam{from{transform:scale(1)}to{transform:scale(1.04)}}
+.foot{position:absolute;inset:0;width:1080px;height:1920px;z-index:1;display:block}
+.kicker{font-size:28px;font-weight:700;letter-spacing:.42em;color:#2dd4bf;white-space:nowrap}
+.h1{font-size:112px;font-weight:900;line-height:1.14;letter-spacing:.01em;
+ background:linear-gradient(100deg,#f4f8ff 20%,#9be8db 55%,#c4b5fd 90%);-webkit-background-clip:text;background-clip:text;color:transparent;
+ filter:drop-shadow(0 8px 40px rgba(45,212,191,.18))}
+.h{font-size:72px;font-weight:900;line-height:1.12;white-space:nowrap;
+ background:linear-gradient(100deg,#f4f8ff 20%,#9be8db 55%,#c4b5fd 90%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:34px;font-weight:500;color:rgba(232,238,247,.86);line-height:1.55}
+.cap{font-size:30px;color:rgba(232,238,247,.85);line-height:1.5}
+.chip{display:inline-flex;align-items:center;gap:14px;padding:16px 32px;border-radius:999px;font-size:32px;font-weight:700;white-space:nowrap;
+ background:rgba(20,32,52,.85);border:1.5px solid rgba(150,200,255,.24);box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.tag{display:inline-flex;align-items:center;gap:12px;padding:12px 24px;border-radius:999px;font-size:28px;font-weight:700;white-space:nowrap;
+ background:rgba(10,18,32,.88);border:1.5px solid rgba(150,200,255,.3);box-shadow:0 12px 30px rgba(0,0,0,.45);color:#f4f8ff}
+.dot{width:16px;height:16px;border-radius:50%;flex:none}
+.badge{display:inline-block;padding:12px 26px;border-radius:12px;font-size:28px;font-weight:700;white-space:nowrap;
+ background:rgba(45,212,191,.14);border:1.5px solid rgba(45,212,191,.45);color:#7ff0df}
+.pic{position:absolute;border-radius:22px;overflow:hidden;background:#0b1220;border:1.5px solid rgba(150,200,255,.24);box-shadow:0 34px 90px rgba(0,0,0,.6)}
+.pic img{display:block;width:100%;height:100%;object-fit:cover}
+.in{opacity:0;animation:rise .9s cubic-bezier(.16,1,.3,1) both;animation-delay:var(--d,0s)}
+@keyframes rise{from{opacity:0;transform:translateY(46px)}to{opacity:1;transform:none}}
+.pop{opacity:0;animation:pop .75s cubic-bezier(.2,1.4,.35,1) both;animation-delay:var(--d,0s)}
+@keyframes pop{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:scale(1)}}
+.fade{opacity:0;animation:fadein .8s ease both;animation-delay:var(--d,0s)}
+@keyframes fadein{to{opacity:1}}
+/* 疊在運鏡畫面上的字：深色漸層底 */
+.shade{position:absolute;z-index:2;pointer-events:none}
+.shade.b{left:0;right:0;bottom:0;height:883px;background:linear-gradient(0deg,rgba(5,9,16,.88) 0%,rgba(5,9,16,.55) 45%,transparent 100%)}
+.shade.t{left:0;right:0;top:0;height:691px;background:linear-gradient(180deg,rgba(5,9,16,.82) 0%,rgba(5,9,16,.45) 50%,transparent 100%)}
+.shade.l{left:0;top:0;bottom:0;width:540px;background:linear-gradient(90deg,rgba(5,9,16,.86) 0%,rgba(5,9,16,.5) 55%,transparent 100%)}
+.shade.all{inset:0;background:rgba(5,9,16,.55)}
+.ttl{position:absolute;z-index:5;display:flex;flex-direction:column;gap:12px}
+.ttl .h{filter:drop-shadow(0 4px 18px rgba(0,0,0,.6))}
+.ttl .sub{text-shadow:0 2px 10px rgba(0,0,0,.7)}
+/* 跟著 3D 位置跑的標籤 */
+.trk{position:absolute;left:0;top:0;z-index:5;opacity:0;will-change:transform,opacity}
+.trk .tag{position:absolute;left:0;bottom:40px;transform:translateX(-50%)}
+.trk i.pin{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 0 6px rgba(45,212,191,.3),0 4px 12px rgba(0,0,0,.5)}
+.trk i.stem{position:absolute;left:-1.5px;bottom:9px;width:3px;height:31px;background:linear-gradient(0deg,#2dd4bf,rgba(45,212,191,.2))}
+
+.top{position:absolute;left:60px;right:60px;top:150px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:18px;z-index:5}
+.pill{display:inline-block;padding:12px 30px;border-radius:999px;font-size:34px;font-weight:800;letter-spacing:.08em;color:#05121a;background:#2dd4bf;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.sh{font-size:100px;font-weight:900;line-height:1.14;color:#fff;text-shadow:0 4px 0 rgba(5,9,16,.55),0 10px 40px rgba(0,0,0,.65)}
+.ss{font-size:52px;font-weight:700;line-height:1.35;color:#eaf6ff;text-shadow:0 3px 18px rgba(0,0,0,.8)}
+.note{font-size:34px;font-weight:600;color:rgba(232,238,247,.85);text-shadow:0 2px 12px rgba(0,0,0,.8)}
+.shade.t{height:900px}
+.lbl{position:absolute;z-index:5;display:inline-flex;align-items:center;gap:14px;padding:16px 30px;border-radius:999px;font-size:44px;font-weight:800;white-space:nowrap;
+ background:rgba(10,18,32,.9);border:2px solid rgba(45,212,191,.6);color:#f4f8ff;box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.lbl i{width:22px;height:22px;border-radius:50%;flex:none}
+</style></head>
+<body style="--dur:5.8s">
+<div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div><canvas id="fx" style="position:absolute;inset:0;z-index:3;pointer-events:none"></canvas>
+<script>
+(()=>{const cv=document.getElementById('fx'),W=innerWidth,H=innerHeight;cv.width=W;cv.height=H;const cx=cv.getContext('2d');
+let s=7;const R=()=>(s=(s*16807)%2147483647)/2147483647;
+const P=[];for(let i=0;i<90;i++)P.push({x:R()*W,y:R()*H,r:.8+R()*2.6,s:.12+R()*.5,o:.12+R()*.4,hue:R()<.6?'45,212,191':'167,139,250',ph:R()*6.28});
+function draw(){const t=performance.now()/1000;cx.clearRect(0,0,W,H);
+ for(const p of P){const y=(p.y-t*38*p.s)%H,yy=y<0?y+H:y,x=p.x+Math.sin(t*.5+p.ph)*26,tw=.55+.45*Math.sin(t*1.7+p.ph*3);
+  cx.beginPath();cx.arc(x,yy,p.r,0,6.283);cx.fillStyle=`rgba(${p.hue},${(p.o*tw).toFixed(3)})`;cx.fill();}
+ requestAnimationFrame(draw);}
+requestAnimationFrame(draw);})();
+</script>
+<canvas class="foot" width="1080" height="1920"></canvas>
+<div class="stage">
+
+<div class="top" style="top:560px">
+ <span class="pill pop" style="--d:.1s">DofLab · Agent Office</span>
+ <div class="sh pop" style="--d:.35s;font-size:110px">代理人的<br>3D 辦公室</div>
+ <div class="ss in" style="--d:.9s">開會・投票・分工・改造辦公室</div>
+ <div class="note in" style="--d:1.4s;margin-top:30px;color:#7ff0df;font-size:44px;letter-spacing:.12em">DofLab　劉瑞弘</div>
+</div>
+</div>
+<div class="shade all" style="background:rgba(5,9,16,.68)"></div>
+<div class="vig"></div>
+<script>window.__FOOT=[{"at": 0, "from": 0, "rate": 0.35, "shot": "p_aerial", "n": 192}];window.__TRACK={};</script>
+<script>
+(()=>{const T=window.__TRACK||{},els=[...document.querySelectorAll('.trk')];const W=innerWidth,H=innerHeight,AV=window.__AVOID||null;
+window.__trackUpdate=(t,a)=>{const fr=(T[a.seg.shot]||[])[a.i-1]||{};const sc=(a.seg.scale||1),ox=a.seg.ox||0,oy=a.seg.oy||0;
+ for(const el of els){const k=el.dataset.k,p=fr[k],on=+el.dataset.on,off=+(el.dataset.off||1e9);
+  if(!p){el.style.opacity=0;continue;}const x=p[0]*sc+ox+(+el.dataset.dx||0),y=p[1]*sc+oy+(+el.dataset.dy||0);
+  const m=+(el.dataset.m||120),edge=Math.min(x-m,W-m-x,y-140,H-60-y);let vis=p[2]&&edge>0?Math.min(1,edge/120):0;
+  if(AV){const d=Math.max(AV[0]-x,x-AV[2],AV[1]-y,y-AV[3]);vis*=Math.min(1,Math.max(0,d/90));}
+  const k1=Math.min(1,Math.max(0,(t-on)/.4)),k2=Math.min(1,Math.max(0,(off-t)/.4));
+  el.style.opacity=(vis*k1*k2).toFixed(3);el.style.transform=`translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;}};
+})();
+</script>
+<script>
+(()=>{const F=window.__FOOT||[],cv=document.querySelector('canvas.foot');if(!cv)return;const cx=cv.getContext('2d');
+let shown='';const cache=new Map();
+window.__footAt=t=>{let seg=null;for(const s of F)if(t>=s.at-1e-6)seg=s;if(!seg)return null;
+ const i=Math.max(1,Math.min(seg.n,Math.floor((seg.from+(t-seg.at)*(seg.rate||1))*30+1e-6)+1));return {seg,i};};
+async function load(src){if(cache.has(src))return cache.get(src);const im=new Image();im.src=src;const p=im.decode().then(()=>im);cache.set(src,p);
+ if(cache.size>8)cache.delete(cache.keys().next().value);return p;}
+window.__frameReady=async()=>{const t=performance.now()/1000,a=window.__footAt(t);if(!a)return;
+ const src='../work/footage/'+a.seg.shot+'/f_'+String(a.i).padStart(6,'0')+'.jpg';if(src===shown)return;
+ const im=await load(src);const s=a.seg;cx.drawImage(im,s.sx||0,s.sy||0,s.sw||im.naturalWidth,s.sh||im.naturalHeight,0,0,cv.width,cv.height);shown=src;
+ for(const n of ['','2']){const nx=window.__footAt(t+(n?2:1)/30);if(nx){const s2='../work/footage/'+nx.seg.shot+'/f_'+String(nx.i).padStart(6,'0')+'.jpg';load(s2);}}
+ if(window.__trackUpdate)window.__trackUpdate(t,a);};
+})();
+</script>
+</body></html>

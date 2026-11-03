@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>起點</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#070d17}
+body{font-family:"Noto Sans TC","Noto Sans CJK TC","WenQuanYi Zen Hei","PingFang TC","Microsoft JhengHei",sans-serif;color:#e8eef7;position:relative;-webkit-font-smoothing:antialiased}
+.bg{position:absolute;inset:0;background:
+ radial-gradient(1190px 799px at 24% 18%,rgba(45,212,191,.14),transparent 62%),
+ radial-gradient(1114px 756px at 78% 82%,rgba(139,92,246,.15),transparent 60%),
+ linear-gradient(160deg,#0d1b2e 0%,#070d17 58%,#05070d 100%)}
+.aur{position:absolute;width:1498px;height:1498px;border-radius:50%;filter:blur(90px);opacity:.5;mix-blend-mode:screen}
+.aur.a{background:radial-gradient(circle,rgba(45,212,191,.32),transparent 62%);left:-24%;top:-30%;animation:drift1 22s ease-in-out infinite alternate}
+.aur.b{background:radial-gradient(circle,rgba(139,92,246,.30),transparent 62%);right:-27%;bottom:-32%;animation:drift2 26s ease-in-out infinite alternate}
+@keyframes drift1{to{transform:translate(150px,90px) scale(1.12)}}
+@keyframes drift2{to{transform:translate(-130px,-80px) scale(1.08)}}
+.grid{position:absolute;inset:0;opacity:.05;background-image:linear-gradient(rgba(232,238,247,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(232,238,247,.5) 1px,transparent 1px);background-size:64px 64px}
+.vig{position:absolute;inset:0;background:radial-gradient(1594px 1004px at 50% 46%,transparent 58%,rgba(0,0,0,.5) 100%);pointer-events:none;z-index:6}
+.stage{position:absolute;inset:0;z-index:4;animation:cam var(--dur) ease-in-out both}
+@keyframes cam{from{transform:scale(1)}to{transform:scale(1.04)}}
+.foot{position:absolute;inset:0;width:1920px;height:1080px;z-index:1;display:block}
+.kicker{font-size:28px;font-weight:700;letter-spacing:.42em;color:#2dd4bf;white-space:nowrap}
+.h1{font-size:112px;font-weight:900;line-height:1.14;letter-spacing:.01em;
+ background:linear-gradient(100deg,#f4f8ff 20%,#9be8db 55%,#c4b5fd 90%);-webkit-background-clip:text;background-clip:text;color:transparent;
+ filter:drop-shadow(0 8px 40px rgba(45,212,191,.18))}
+.h{font-size:72px;font-weight:900;line-height:1.12;white-space:nowrap;
+ background:linear-gradient(100deg,#f4f8ff 20%,#9be8db 55%,#c4b5fd 90%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:34px;font-weight:500;color:rgba(232,238,247,.86);line-height:1.55}
+.cap{font-size:30px;color:rgba(232,238,247,.85);line-height:1.5}
+.chip{display:inline-flex;align-items:center;gap:14px;padding:16px 32px;border-radius:999px;font-size:32px;font-weight:700;white-space:nowrap;
+ background:rgba(20,32,52,.85);border:1.5px solid rgba(150,200,255,.24);box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.tag{display:inline-flex;align-items:center;gap:12px;padding:12px 24px;border-radius:999px;font-size:28px;font-weight:700;white-space:nowrap;
+ background:rgba(10,18,32,.88);border:1.5px solid rgba(150,200,255,.3);box-shadow:0 12px 30px rgba(0,0,0,.45);color:#f4f8ff}
+.dot{width:16px;height:16px;border-radius:50%;flex:none}
+.badge{display:inline-block;padding:12px 26px;border-radius:12px;font-size:28px;font-weight:700;white-space:nowrap;
+ background:rgba(45,212,191,.14);border:1.5px solid rgba(45,212,191,.45);color:#7ff0df}
+.pic{position:absolute;border-radius:22px;overflow:hidden;background:#0b1220;border:1.5px solid rgba(150,200,255,.24);box-shadow:0 34px 90px rgba(0,0,0,.6)}
+.pic img{display:block;width:100%;height:100%;object-fit:cover}
+.in{opacity:0;animation:rise .9s cubic-bezier(.16,1,.3,1) both;animation-delay:var(--d,0s)}
+@keyframes rise{from{opacity:0;transform:translateY(46px)}to{opacity:1;transform:none}}
+.pop{opacity:0;animation:pop .75s cubic-bezier(.2,1.4,.35,1) both;animation-delay:var(--d,0s)}
+@keyframes pop{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:scale(1)}}
+.fade{opacity:0;animation:fadein .8s ease both;animation-delay:var(--d,0s)}
+@keyframes fadein{to{opacity:1}}
+/* 疊在運鏡畫面上的字：深色漸層底 */
+.shade{position:absolute;z-index:2;pointer-events:none}
+.shade.b{left:0;right:0;bottom:0;height:497px;background:linear-gradient(0deg,rgba(5,9,16,.88) 0%,rgba(5,9,16,.55) 45%,transparent 100%)}
+.shade.t{left:0;right:0;top:0;height:389px;background:linear-gradient(180deg,rgba(5,9,16,.82) 0%,rgba(5,9,16,.45) 50%,transparent 100%)}
+.shade.l{left:0;top:0;bottom:0;width:960px;background:linear-gradient(90deg,rgba(5,9,16,.86) 0%,rgba(5,9,16,.5) 55%,transparent 100%)}
+.shade.all{inset:0;background:rgba(5,9,16,.55)}
+.ttl{position:absolute;z-index:5;display:flex;flex-direction:column;gap:12px}
+.ttl .h{filter:drop-shadow(0 4px 18px rgba(0,0,0,.6))}
+.ttl .sub{text-shadow:0 2px 10px rgba(0,0,0,.7)}
+/* 跟著 3D 位置跑的標籤 */
+.trk{position:absolute;left:0;top:0;z-index:5;opacity:0;will-change:transform,opacity}
+.trk .tag{position:absolute;left:0;bottom:40px;transform:translateX(-50%)}
+.trk i.pin{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 0 6px rgba(45,212,191,.3),0 4px 12px rgba(0,0,0,.5)}
+.trk i.stem{position:absolute;left:-1.5px;bottom:9px;width:3px;height:31px;background:linear-gradient(0deg,#2dd4bf,rgba(45,212,191,.2))}
+
+.col{position:absolute;top:250px;width:360px;display:flex;flex-direction:column;align-items:flex-start;gap:14px}
+.th{font-size:34px;font-weight:900;letter-spacing:.08em;margin-bottom:6px}
+.wires{position:absolute;left:0;top:0}
+.wires path{fill:none;stroke:rgba(45,212,191,.55);stroke-width:3;stroke-dasharray:900;stroke-dashoffset:900;animation:draw 1.3s ease-out 2.2s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.hub{position:absolute;left:600px;width:720px;top:800px;padding:26px 36px;border-radius:26px;display:flex;flex-direction:column;align-items:center;gap:18px;
+ background:linear-gradient(165deg,rgba(24,38,62,.95),rgba(12,20,36,.96));border:1.5px solid rgba(45,212,191,.45);box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 60px rgba(45,212,191,.18)}
+.hub-h{display:flex;align-items:center;gap:20px;font-size:42px;font-weight:900}
+.hub-r{display:flex;gap:20px}</style></head>
+<body style="--dur:8s">
+<div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div>
+
+<div class="stage">
+
+<div class="ttl" style="left:110px;top:64px"><div class="kicker in" style="--d:.1s">起點</div><div class="h in" style="--d:.25s">12 位代理人，各做各的</div></div>
+<div class="col" style="left:170px"><div class="th in" style="--d:0.45s;color:#1f9ab8">DofLab</div><span class="tag pop" style="--d:0.5s;"><i class="dot" style="background:#1f9ab8"></i>小櫻</span><span class="tag pop" style="--d:0.6s;"><i class="dot" style="background:#1f9ab8"></i>佐助</span><span class="tag pop" style="--d:0.7s;"><i class="dot" style="background:#1f9ab8"></i>鹿丸</span><span class="tag pop" style="--d:0.8s;"><i class="dot" style="background:#1f9ab8"></i>鼬</span><span class="tag pop" style="--d:0.9s;"><i class="dot" style="background:#1f9ab8"></i>水門</span></div><div class="col" style="left:580px"><div class="th in" style="--d:0.75s;color:#d0892a">DofGM</div><span class="tag pop" style="--d:0.8s;"><i class="dot" style="background:#d0892a"></i>雛田</span><span class="tag pop" style="--d:0.9s;"><i class="dot" style="background:#d0892a"></i>卡卡西</span><span class="tag pop" style="--d:1.0s;"><i class="dot" style="background:#d0892a"></i>綱手</span><span class="tag pop" style="--d:1.1s;"><i class="dot" style="background:#d0892a"></i>我愛羅</span><span class="tag pop" style="--d:1.2s;"><i class="dot" style="background:#d0892a"></i>大蛇丸</span></div><div class="col" style="left:990px"><div class="th in" style="--d:1.05s;color:#d0574b">NCUT_PJ</div><span class="tag pop" style="--d:1.1s;"><i class="dot" style="background:#d0574b"></i>自來也</span></div><div class="col" style="left:1400px"><div class="th in" style="--d:1.35s;color:#8a66d6">Pro</div><span class="tag pop" style="--d:1.4s;"><i class="dot" style="background:#8a66d6"></i>鳴人</span></div>
+<svg class="wires" width="1920" height="1080"><path d="M340,690 C340,770 960,700 960,800"/><path d="M750,690 C750,770 960,700 960,800"/><path d="M1160,400 C1160,770 960,700 960,800"/><path d="M1570,400 C1570,770 960,700 960,800"/></svg>
+<div class="hub pop" style="--d:3.3s">
+ <div class="hub-h"><svg width="58" height="50" viewBox="0 0 58 50"><path d="M6 46V18L29 4l23 14v28H36V30H22v16z" fill="#2dd4bf" opacity=".9"/></svg>同一間 3D 辦公室</div>
+ <div class="hub-r"><span class="badge">工作紀錄</span><span class="badge">會議</span><span class="badge">指令</span></div>
+</div>
+<div class="cap in" style="--d:4.3s;position:absolute;left:0;right:0;bottom:40px;text-align:center">每位代理人在自己的帳號排程工作、彼此看不到　→　看板把大家的動態畫成同一層樓</div>
+
+</div>
+
+<div class="vig"></div>
+
+</body></html>

@@ -10,6 +10,11 @@ window.AGENT_OFFICE_CONFIG = {
   // 各有一間辦公室的 TEAM（依序排在走廊南側）；其他 TEAM 的代理人坐「共用座位」。
   officeTeams: ['TeamA', 'TeamB'],
 
+  // 3D 人物狀態：最新一筆工作（工作紀錄、指令回報或會議發言）在 activeHours 小時內 → 坐在座位工作，螢幕顯示那筆工作；
+  // activeHours～idleHours 小時 → 休息（座位與茶水間之間來回）；超過 idleHours → 閒置。
+  activeHours: 2,
+  idleHours: 6,
+
   // （可省略）代理人暱稱與 3D 外觀，以 email＋TEAM 對應；沒列到的顯示 email 的 @ 前段。
   // look：hair 髮色、style 髮型（short / spiky / long / ponytail / lowtail / twintail / bun）、shirt 衣服顏色、
   //   skin 膚色、extra 配件（headband 護額、mask 面罩、vest 背心、cape 披風、cloak 長袍、gourd 背葫蘆、hairband 髮帶）。

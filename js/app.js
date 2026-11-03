@@ -162,6 +162,12 @@
       for (const x of mlist) for (const q of x.msgs) if (isMe(q.from, a) && (!best || q.ts > best.ts)) best = { ...q, meetingTitle: x.title };
       a.lastSay = best;
       a.meetMsg = best && Date.now() - best.ts < 45 * 60e3 ? best : null;
+      // newest piece of work: a record, a report on a command, or a meeting message (the 3D office seats people by this)
+      let act = { ts: a.latest.ts, kind: 'rec', topic: a.latest.topic, content: a.latest.content || '' };
+      for (const c of clist) for (const k of c.acks)
+        if (k.ts > act.ts && isMe(k.by, a)) act = { ts: k.ts, kind: 'ack', topic: c.cmd.title || c.id, content: k.note || '', status: k.status };
+      if (best && best.ts > act.ts) act = { ts: best.ts, kind: 'say', topic: best.meetingTitle, content: best.content || '' };
+      a.act = act;
     }
     const today = fmtDay.format(Date.now());
     return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };

@@ -333,7 +333,7 @@ function buildStudio(room) {
   // ON AIR light above the door, facing the corridor
   const cv = document.createElement('canvas'); cv.width = 256; cv.height = 96; const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const air = new THREE.Mesh(new THREE.PlaneGeometry(.9, .34), new THREE.MeshBasicMaterial({ map: tex }));
-  air.position.set(dx + 1.05, 1.3, -(y0 - .02)); air.rotation.y = Math.PI; g.add(air);
+  air.position.set(dx + 1.05, 1.3, -(y0 - .02)); g.add(air);   // faces the corridor (+z)
   const airBack = new THREE.Mesh(new THREE.BoxGeometry(.96, .4, .05), dark); airBack.position.set(dx + 1.05, 1.3, -(y0 + .015)); g.add(airBack);
   cyl(.02, .02, .3, dark, dx + 1.05, 1.0, -(y0 + .02));
   floor.onAir = { cv, ctx: cv.getContext('2d'), tex, on: null };

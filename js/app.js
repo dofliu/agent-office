@@ -139,11 +139,20 @@
       return x; }).sort((a, b) => (b.open - a.open) || (b.lastTs - a.lastTs));
     // commands
     const cmds = new Map();
-    const cget = id => { if (!cmds.has(id)) cmds.set(id, { id, cmd: null, acks: [] }); return cmds.get(id); };
+    const cget = id => { if (!cmds.has(id)) cmds.set(id, { id, cmd: null, acks: [], approvals: [] }); return cmds.get(id); };
     for (const f of Object.values(state.cfiles)) { const o = f.rec; if (!o || !o.command_id) continue; const c = cget(o.command_id);
       if (o.type === 'command') c.cmd = { ...o, fileId: f.id, viewUrl: f.viewUrl, ts: tsOf(o.created, f) };
-      else if (o.type === 'ack') c.acks.push({ ...o, ts: tsOf(o.time, f) }); }
-    const clist = [...cmds.values()].filter(c => c.cmd).map(c => { c.acks.sort((a, b) => a.ts - b.ts); const last = c.acks[c.acks.length - 1]; c.status = last ? last.status : 'new'; c.note = last ? last.note : ''; return c; })
+      else if (o.type === 'ack') c.acks.push({ ...o, ts: tsOf(o.time, f) });
+      else if (o.type === 'approval') c.approvals.push({ ...o, ts: tsOf(o.time, f) }); }
+    const clist = [...cmds.values()].filter(c => c.cmd).map(c => {
+      c.acks.sort((a, b) => a.ts - b.ts); c.approvals.sort((a, b) => a.ts - b.ts);
+      const last = c.acks[c.acks.length - 1]; c.status = last ? last.status : 'new'; c.note = last ? last.note : '';
+      // approval gate: only for commands flagged needs_approval, or where the agent asked for approval
+      c.approval = c.approvals[c.approvals.length - 1] || null;
+      c.gate = !(c.cmd.needs_approval || c.acks.some(k => k.status === 'awaiting_approval')) ? null : c.approval ? c.approval.decision : 'waiting';
+      const closed = ['done', 'declined'].includes(c.status);
+      c.view = closed ? c.status : c.gate === 'waiting' ? 'awaiting_approval' : c.gate === 'rejected' ? 'rejected' : c.gate === 'approved' && c.status === 'awaiting_approval' ? 'approved' : c.status;
+      return c; })
       .sort((a, b) => b.cmd.ts - a.cmd.ts);
     for (const a of accounts) {
       a.cmds = clist.filter(c => isMe(c.cmd.to, a));
@@ -155,7 +164,7 @@
       a.meetMsg = best && Date.now() - best.ts < 45 * 60e3 ? best : null;
     }
     const today = fmtDay.format(Date.now());
-    return { recs, meetings: mlist, commands: clist, teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
+    return { recs, meetings: mlist, commands: clist, awaiting: clist.filter(c => c.view === 'awaiting_approval'), teams: teams.map(k => teamInfo[k]), teamInfo, accounts, emails: new Set(recs.map(r => r.account)).size, today: recs.filter(r => fmtDay.format(r.ts) === today).length };
   }
 
   // ---------- render ----------
@@ -218,9 +227,9 @@
     }
     if (openAccount && !drawerTyping()) renderDrawer(m);
     if (openMeet && !drawerTyping()) renderMeetDrawer(m);
-    if (adminOpen && !drawerTyping()) renderAdminDrawer();
+    if (adminOpen && !drawerTyping()) renderAdminDrawer(m);
     if (planOpen) renderPlanDrawer(m);
-    const ab = $('adminBtn'); if (ab) { ab.textContent = isAdmin ? '管理模式' : '管理登入'; ab.classList.toggle('on', isAdmin); }
+    const ab = $('adminBtn'); if (ab) { const n = isAdmin ? m.awaiting.length : 0; ab.textContent = !isAdmin ? '管理登入' : n ? `待核准 ${n}` : '管理模式'; ab.classList.toggle('on', isAdmin); ab.classList.toggle('hot', n > 0); }
     const mb = $('meetBtn'); if (mb) { const n = m.meetings.filter(x => x.open).length; mb.textContent = n ? `會議 ${n}` : '會議'; mb.classList.toggle('hot', n > 0); }
   }
   // only pause redraws while the viewer is typing or picking; ticking a checkbox must redraw (attendee count, host list)
@@ -376,7 +385,28 @@
   }
 
   // ---------- commands, meetings (board writes new JSON files only) ----------
-  const ST_ZH = { new: '待接收', received: '已收到', in_progress: '進行中', done: '完成', declined: '不做', blocked: '卡住' };
+  const ST_ZH = { new: '待接收', received: '已收到', in_progress: '進行中', done: '完成', declined: '不做', blocked: '卡住', awaiting_approval: '待核准', approved: '已核准', rejected: '已駁回' };
+  // approve / reject a gated command (only shown in admin mode while it waits)
+  let approveMsg = null;
+  function gateButtons(c) {
+    if (!isAdmin || c.view !== 'awaiting_approval') return approveMsg && approveMsg.id === c.id ? el('p', { class: 'm-status ' + (approveMsg.bad ? 'bad' : 'ok') }, approveMsg.text) : null;
+    return el('div', { class: 'm-row' },
+      armed('ap:' + c.id, '核准', '確定核准？', () => decide(c, 'approved'), 'btn sm primary'),
+      armed('rj:' + c.id, '駁回', '確定駁回？', () => decide(c, 'rejected')),
+      approveMsg && approveMsg.id === c.id ? el('span', { class: 'm-status ' + (approveMsg.bad ? 'bad' : 'ok') }, approveMsg.text) : null);
+  }
+  async function decide(c, decision) {
+    if (!isAdmin) return;
+    try { const r = await api('approveCommand', { command_id: c.id, decision }); putFile(state.cfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state));
+      approveMsg = { id: c.id, text: decision === 'approved' ? '已核准，代理人下次排程會執行。' : '已駁回。' }; }
+    catch (e) { approveMsg = { id: c.id, ...sendError(e) }; }
+    render();
+  }
+  const cmdItem = (c, who) => el('li', {},
+    el('div', { class: 'c-row' }, el('span', { class: 'st st-' + c.view }, ST_ZH[c.view] || c.view), who ? el('b', {}, who) : null, el('b', {}, c.cmd.title || '(無標題)'), el('span', { class: 'muted' }, rel(c.cmd.ts))),
+    c.note ? el('p', { class: 'c-note' }, c.note) : null,
+    c.cmd.needs_approval && c.cmd.approval_reason ? el('p', { class: 'hint' }, '需要核准：' + c.cmd.approval_reason) : null,
+    gateButtons(c));
   const KIND_ZH = { opinion: '意見', question: '提問', answer: '回答', proposal: '提案', agree: '同意', disagree: '反對', info: '補充', instruction: '指示', action: '待辦' };
   const partyName = p => !p ? '—' : p.team === 'HUMAN' ? (p.name || '老師') : agentCfg(p.account, p.team) ? nickOf(p.account, p.team) : (p.name || String(p.account || '').split('@')[0] || '—');
   // All writes: POST to the Apps Script web app with the admin password. The script builds and names the files.
@@ -396,15 +426,14 @@
   function sendError(e) { return { bad: true, text: apiMsg(e) }; }
   const loginHint = what => el('p', { class: 'hint' }, `${what}請先按右上角「管理登入」。`);
   function commandBox(a) {
-    const d = cmdDraft[a.key] || (cmdDraft[a.key] = { title: '', text: '', high: false });
+    const d = cmdDraft[a.key] || (cmdDraft[a.key] = { title: '', text: '', high: false, gate: false });
     const ti = el('input', { id: 'cmdTitle', type: 'text', placeholder: '標題（例如：整理本週進度）', value: d.title, maxlength: '40' });
     ti.addEventListener('input', () => { d.title = ti.value; });
     const tx = el('textarea', { id: 'cmdText', rows: '3', placeholder: '要它做什麼、做到什麼程度、成果放哪裡' }); tx.value = d.text;
     tx.addEventListener('input', () => { d.text = tx.value; });
     const hi = el('input', { id: 'cmdHigh', type: 'checkbox' }); hi.checked = d.high; hi.addEventListener('change', () => { d.high = hi.checked; });
-    const list = a.cmds.slice(0, 5).map(c => el('li', {},
-      el('div', { class: 'c-row' }, el('span', { class: 'st st-' + c.status }, ST_ZH[c.status] || c.status), el('b', {}, c.cmd.title || '(無標題)'), el('span', { class: 'muted' }, rel(c.cmd.ts))),
-      c.note ? el('p', { class: 'c-note' }, c.note) : null));
+    const ga = el('input', { id: 'cmdGate', type: 'checkbox' }); ga.checked = d.gate; ga.addEventListener('change', () => { d.gate = ga.checked; });
+    const list = a.cmds.slice(0, 5).map(c => cmdItem(c));
     if (!isAdmin) return el('div', { class: 'sect cmdbox' },
       el('h2', {}, '指令', a.pending ? el('span', { class: 'badge' }, `待處理 ${a.pending}`) : null),
       list.length ? el('ul', { class: 'clist' }, ...list) : el('p', { class: 'hint' }, '目前沒有交給它的指令。'),
@@ -414,6 +443,7 @@
       el('p', { class: 'hint' }, '指令會存到雲端「指令」資料夾；這個代理人的排程下次執行「雲端會議」時才會看到並回報。'),
       ti, tx,
       el('div', { class: 'm-row' }, el('label', { class: 'ck', for: 'cmdHigh' }, hi, '急件'),
+        el('label', { class: 'ck', for: 'cmdGate', title: '只有對外寄信、公開發布、花錢、以老師名義對外承諾時才需要' }, ga, '需要我核准才執行'),
         el('button', { class: 'btn sm primary', type: 'button', disabled: sendBusy ? '' : null, onclick: () => sendCommand(a) }, sendBusy || '送出指令')),
       sendMsg && sendMsg.where === a.key ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null,
       list.length ? el('ul', { class: 'clist' }, ...list) : null);
@@ -422,8 +452,9 @@
     const d = cmdDraft[a.key]; if (!isAdmin || sendBusy) return;
     if (!d.text.trim()) { sendMsg = { where: a.key, bad: true, text: '請先寫指令內容。' }; render(); return; }
     sendBusy = '送出中…'; sendMsg = null; render();
-    try { const r = await api('createCommand', { to: { account: a.account, team: a.team ? a.team.label : null }, title: d.title.trim() || d.text.trim().slice(0, 20), instruction: d.text.trim(), priority: d.high ? 'high' : 'normal' });
-      putFile(state.cfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); cmdDraft[a.key] = { title: '', text: '', high: false }; sendMsg = { where: a.key, text: '已送出，等它的排程來領取。' }; }
+    try { const r = await api('createCommand', { to: { account: a.account, team: a.team ? a.team.label : null }, title: d.title.trim() || d.text.trim().slice(0, 20), instruction: d.text.trim(), priority: d.high ? 'high' : 'normal',
+        needs_approval: !!d.gate, approval_reason: d.gate ? '老師下指令時勾選「需要我核准才執行」' : '' });
+      putFile(state.cfiles, r.file); lsSet(LS_CACHE, JSON.stringify(state)); cmdDraft[a.key] = { title: '', text: '', high: false, gate: false }; sendMsg = { where: a.key, text: '已送出，等它的排程來領取。' }; }
     catch (e) { sendMsg = { where: a.key, ...sendError(e) }; }
     sendBusy = ''; render();
   }
@@ -475,7 +506,11 @@
       (x.minutes.decisions || []).length ? el('ul', {}, ...(x.minutes.decisions || []).map(t => el('li', {}, t))) : null,
       (x.minutes.actions || []).length ? el('ul', { class: 'clist' }, ...(x.minutes.actions || []).map(ac => {
         const c = m.commands.find(cc => cc.id === ac.command_id);
-        return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st st-' + (c ? c.status : 'new') }, ST_ZH[c ? c.status : 'new']), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || ''))); })) : null) : null;
+        if (!c) return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st st-new' }, '未建立'), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || '')));
+        const known = m.accounts.some(a => isMe(c.cmd.to, a));
+        return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st st-' + c.view }, ST_ZH[c.view] || c.view), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || '')),
+          !known ? el('p', { class: 'hint warn' }, `收件人 ${c.cmd.to && c.cmd.to.account} 不在代理人名單裡（可能打錯），對方可能收不到。`) : null,
+          gateButtons(c)); })) : null) : null;
     const draft = teacherMsg[x.id] || (teacherMsg[x.id] = { text: '', kind: 'opinion', at: new Set() });
     const tx = el('textarea', { id: 'tmsg', rows: '3', placeholder: '以劉老師身分發言，例如補充方向或指名某位代理人回答' }); tx.value = draft.text;
     tx.addEventListener('input', () => { draft.text = tx.value; });
@@ -568,12 +603,15 @@
   }
 
   // ---------- admin sign-in (password is checked by the Apps Script; kept only in this browser) ----------
-  function renderAdminDrawer() {
+  function renderAdminDrawer(m) {
     const host = $('drawerHost');
     const closeBtn = el('button', { class: 'close', type: 'button', 'aria-label': '關閉', onclick: closeDrawer }, '×');
     let body;
     if (isAdmin) body = el('div', { class: 'form' },
-      el('p', { class: 'hint' }, '這個瀏覽器已進入管理模式：可以發起會議、以老師身分發言、下指令，以及在人物側欄按「管理」改 TEAM 或移除紀錄。'),
+      el('p', { class: 'hint' }, '這個瀏覽器已進入管理模式：可以發起會議、以老師身分發言、下指令、核准指令，以及在人物側欄按「管理」改 TEAM 或移除紀錄。'),
+      el('div', { class: 'sect' }, el('h2', {}, '待核准的指令', m && m.awaiting.length ? el('span', { class: 'badge' }, String(m.awaiting.length)) : null),
+        el('p', { class: 'hint' }, '只有對外寄信、公開發布、花錢、以老師名義對外承諾的工作會停在這裡等你；其他工作代理人收到就做。'),
+        m && m.awaiting.length ? el('ul', { class: 'clist' }, ...m.awaiting.map(c => cmdItem(c, partyName(c.cmd.to)))) : el('p', { class: 'hint' }, '目前沒有。')),
       el('div', { class: 'm-row' }, el('button', { class: 'btn', type: 'button', onclick: () => { isAdmin = false; adminKey = ''; lsDel(LS_KEY); adminMsg = null; render(); } }, '登出管理模式')));
     else {
       const inp = el('input', { id: 'adminPass', type: 'password', autocomplete: 'current-password', placeholder: 'Apps Script 指令碼屬性 ADMIN_KEY 的值' });

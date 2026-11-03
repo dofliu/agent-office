@@ -72,6 +72,17 @@ function getChunked_(cache, key) {
   return text;
 }
 
+// ---------------------------------------------------------------- 授權檢查
+// 看板讀得到資料、寫入卻出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」時：
+// 在編輯器上方的函式選單選 authorize → 按「執行」→ 授權畫面勾選「全部」權限 → 允許，
+// 再到「部署 → 管理部署作業 → 編輯 → 版本選『新版本』→ 部署」。執行紀錄出現「寫入權限正常」就好了。
+function authorize() {
+  const names = Object.keys(FOLDERS).map(k => DriveApp.getFolderById(FOLDERS[k]).getName());
+  const probe = DriveApp.createFile('agent-office-授權測試.txt', 'ok', 'text/plain');   // 建在「我的雲端硬碟」根目錄
+  probe.setTrashed(true);                                                             // 立刻移到垃圾桶
+  Logger.log('讀取正常：' + names.join('、') + '；寫入權限正常');
+}
+
 // ---------------------------------------------------------------- 寫入（管理模式）
 const TZ = 'Asia/Taipei';
 function doPost(e) {

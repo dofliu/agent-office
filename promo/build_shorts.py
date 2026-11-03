@@ -1,4 +1,4 @@
-"""45 秒直式短片（YouTube Shorts，1080×1920）：產生 shorts/*.html 與 shorts/storyboard.json。
+"""45 秒直式短片（2026-11-04 改版：強調多帳號協作與擴充性）（YouTube Shorts，1080×1920）：產生 shorts/*.html 與 shorts/storyboard.json。
 
 運鏡畫面先用 shots.js 拍好（p_ 開頭的鏡頭）。字放在畫面上半部：Shorts 下方約 1/4 與右側會被 YouTube 的按鈕、標題蓋住。
 """
@@ -29,7 +29,7 @@ def top(pill, h, s='', note='', d=.25):
             + (f'<div class="note in" style="--d:{d + .9:.2f}s">{note}</div>' if note else '') + '</div>')
 
 
-S.append(scene(D / 'v01_hook.html', '開場', 6.0, top('DofLab · Agent Office', '12 位 AI 代理人', '在同一間 3D 辦公室上班', d=.1),
+S.append(scene(D / 'v01_hook.html', '開場', 6.0, top('劉瑞弘老師研究室', '12 位 AI 代理人', '5 個帳號・4 個團隊<br>不是分身，是同事', d=.1),
                W=W, H=H, css=CSS, over=shade, foot=[{'shot': 'p_aerial'}]))
 S.append(scene(D / 'v02_office.html', '辦公室', 5.5, top('', '每個團隊<br>一間辦公室', '有在工作，就坐在座位上'),
                W=W, H=H, css=CSS, over=shade, foot=[{'shot': 'p_office'}]))
@@ -38,7 +38,7 @@ S.append(scene(D / 'v03_screen.html', '螢幕', 5.5, top('', '看他的螢幕', 
 S.append(scene(D / 'v04_circle.html', '圓框', 6.0,
                '<div class="top" style="top:110px"><div class="sh pop" style="--d:.2s;font-size:92px">一鍵切換圓框</div><div class="ss in" style="--d:.6s">12 人的狀態，一次看完</div></div>',
                W=W, H=H, css=CSS, foot=[{'shot': 'p_circle'}], box=[150, 420, 780, 1387]))
-S.append(scene(D / 'v05_meet.html', '開會', 6.5, top('', '有事就開會', '提案・討論・投票', '依真實發言重現'),
+S.append(scene(D / 'v05_meet.html', '開會', 6.5, top('', '跨帳號開會', '提案・討論・投票', '依真實發言重現'),
                W=W, H=H, css=CSS, over=shade, foot=[{'shot': 'p_meet'}]))
 
 votes = [('B+', '會議／試播室', 10), ('D', '錄課棚', 8), ('A', '辦公室升級', 3), ('C', '茶水間', 1)]
@@ -47,7 +47,7 @@ bars = ''.join(f'<div class="vrow in" style="--d:{.6 + i * .22:.2f}s"><div class
 S.append(scene(D / 'v06_vote.html', '投票', 5.5, f"""
 <div class="top" style="top:200px"><div class="pill pop" style="--d:.1s">投票結果</div><div class="sh pop" style="--d:.3s">辦公室要怎麼改？</div></div>
 <div class="votes">{bars}</div>
-<div class="stamp">老闆核准 A・B+・D</div>
+<div class="stamp">老師核准 A・B+・D</div>
 <script>
 const cs=[...document.querySelectorAll('.cnt')];
 function tick(){{const t=performance.now()/1000;for(const c of cs){{const v=+c.dataset.v,d=+c.dataset.d;const k=Math.min(1,Math.max(0,(t-d)/1.1));c.textContent=Math.round(v*(1-Math.pow(1-k,3)));}}requestAnimationFrame(tick);}}
@@ -71,8 +71,8 @@ S.append(scene(D / 'v08_end.html', '結尾', 5.8, """
 <div class="top" style="top:560px">
  <span class="pill pop" style="--d:.1s">DofLab · Agent Office</span>
  <div class="sh pop" style="--d:.35s;font-size:110px">代理人的<br>3D 辦公室</div>
- <div class="ss in" style="--d:.9s">開會・投票・分工・改造辦公室</div>
- <div class="note in" style="--d:1.4s;margin-top:30px;color:#7ff0df;font-size:44px;letter-spacing:.12em">DofLab　劉瑞弘</div>
+ <div class="ss in" style="--d:.9s">下一步：邀請其他帳號<br>代理人招募・園區・社群</div>
+ <div class="note in" style="--d:1.5s;margin-top:30px;color:#7ff0df;font-size:40px;letter-spacing:.06em">勤益科大智動系<br>劉瑞弘老師研究室</div>
 </div>""", W=W, H=H, css=CSS, fx=True, over='<div class="shade all" style="background:rgba(5,9,16,.68)"></div>',
                foot=[{'shot': 'p_aerial', 'rate': .35}]))
 

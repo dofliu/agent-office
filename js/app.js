@@ -111,6 +111,10 @@
     return all.length === 1 ? all[0][1] : null;
   }
   const nickOf = (account, team) => { const c = agentCfg(account, team); return c ? c.nick : String(account || '').split('@')[0]; };
+  // 同一個帳號在不同 TEAM 用同一個暱稱（2026-11-03 員工形象決議），會議與指令裡的名字加上 TEAM 才分得出來
+  const teamShort = t => String(t || '').replace(/^(team|personal)\s+/i, '').trim();
+  const NICK_N = new Map(); for (const x of NICKS.values()) NICK_N.set(x.nick, (NICK_N.get(x.nick) || 0) + 1);
+  const nickTeamOf = c => c.nick + (NICK_N.get(c.nick) > 1 ? '·' + teamShort(c.team) : '');
 
   // ---------- formatting ----------
   const fmtFull = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -512,8 +516,14 @@
     catch (e) { approveMsg = { id: c.id, ...sendError(e) }; }
     render();
   }
+  // 收件人是否在名冊（config.js 的 agents）：園區化會議 M202611031458w663 決議「to 不在名冊 → 標記並通知主持人更正」
+  const inRoster = to => { if (!to || to.team === 'HUMAN' || !NICKS.size) return true;
+    const a0 = String(to.account || '').trim().toLowerCase(), a = HASHED.get(a0) || a0, t = nickTeam(to.team);
+    return t && t !== '*' ? NICKS.has(a + '|' + t) : [...NICKS.keys()].some(k => k.startsWith(a + '|')); };
+  const rosterWarn = to => inRoster(to) ? null : el('p', { class: 'hint warn' }, `收件人 ${to.account || '—'}${to.team ? '｜' + to.team : ''} 不在名冊（可能打錯），對方收不到；請主持人更正後重新派出。`);
   const cmdItem = (c, who) => el('li', {},
     el('div', { class: 'c-row' }, el('span', { class: 'st st-' + c.view }, ST_ZH[c.view] || c.view), who ? el('b', {}, who) : null, el('b', {}, c.cmd.title || '(無標題)'), el('span', { class: 'muted' }, rel(c.cmd.ts))),
+    rosterWarn(c.cmd.to),
     c.note ? el('p', { class: 'c-note' }, c.note) : null,
     c.cmd.needs_approval && c.cmd.approval_reason ? el('p', { class: 'hint' }, '需要核准：' + c.cmd.approval_reason) : null,
     gateButtons(c));
@@ -527,7 +537,7 @@
       el('div', { class: 'c-row' }, el('span', { class: 'st ' + st[0] }, st[1]), el('b', {}, partyName(q.from)), el('b', {}, q.title || '(無標題)'), el('span', { class: 'muted' }, rel(q.ts))),
       q.reason ? el('p', { class: 'c-note' }, '為什麼要開：' + q.reason) : null,
       q.goal ? el('p', { class: 'hint' }, '要得到的結論：' + q.goal) : null,
-      att.length ? el('div', { class: 'chiplist' }, ...att.map(p => el('span', { class: 'mchip' }, partyName(p) + (p.team ? '·' + p.team : '')))) : null,
+      att.length ? el('div', { class: 'chiplist' }, ...att.map(p => el('span', { class: 'mchip' }, partyTeam(p)))) : null,
       el('p', { class: 'hint' }, `建議主持人：${partyName(q.host || q.from)}　時限：${Number(q.hours) || 24} 小時`),
       r.decision && r.decision.note ? el('p', { class: 'hint' }, '老師：' + r.decision.note) : null,
       mt ? el('div', { class: 'm-row' }, el('button', { class: 'btn sm', type: 'button', onclick: () => { openMeet = mt.id; render(); } }, '看這場會議 ›')) : null,
@@ -552,7 +562,9 @@
       el('ul', { class: 'clist' }, ...recent.map(r => reqItem(r, m))));
   }
   const KIND_ZH = { opinion: '意見', question: '提問', answer: '回答', proposal: '提案', agree: '同意', disagree: '反對', info: '補充', instruction: '指示', action: '待辦' };
-  const partyName = p => !p ? '—' : p.team === 'HUMAN' ? (p.name || '老師') : agentCfg(p.account, p.team) ? nickOf(p.account, p.team) : (p.name || String(p.account || '').split('@')[0] || '—');
+  const partyBare = p => !p ? '—' : p.team === 'HUMAN' ? (p.name || '老師') : agentCfg(p.account, p.team) ? nickOf(p.account, p.team) : (p.name || String(p.account || '').split('@')[0] || '—');
+  const partyName = p => { const c = p && p.team !== 'HUMAN' && agentCfg(p.account, p.team); return c ? nickTeamOf(c) : partyBare(p); };   // 同名時加 TEAM
+  const partyTeam = p => partyBare(p) + (p && p.team && p.team !== 'HUMAN' ? '·' + teamShort(p.team) : '');                                       // 一律加 TEAM
   // All writes: POST to the Apps Script web app with the admin password. The script builds and names the files.
   async function api(action, payload) {
     const r = await fetch(CFG.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, key: adminKey, ...payload }) });
@@ -697,7 +709,7 @@
       const rp = q.reply_to ? byId.get(q.reply_to) : null;
       const human = q.from && q.from.team === 'HUMAN';
       return el('li', { class: human ? 'human' : '' },
-        el('div', { class: 'when' }, el('b', { class: 'who' }, partyName(q.from)), q.from && q.from.team && !human ? el('span', { class: 'muted' }, q.from.team) : null,
+        el('div', { class: 'when' }, el('b', { class: 'who' }, partyBare(q.from)), q.from && q.from.team && !human ? el('span', { class: 'muted' }, q.from.team) : null,
           el('span', { class: 'kind' }, KIND_ZH[q.kind] || q.kind || ''), el('span', {}, fmtFull.format(q.ts).slice(5))),
         rp ? el('p', { class: 'quote' }, `回覆 ${partyName(rp.from)}：${String(rp.content || '').slice(0, 40)}…`) : null,
         (q.mentions || []).length ? el('p', { class: 'mention' }, (q.mentions || []).map(p => '@' + partyName(p)).join(' ')) : null,
@@ -709,9 +721,9 @@
       (((x.ruling && x.ruling.actions) || x.minutes.actions || [])).length ? el('ul', { class: 'clist' }, ...(((x.ruling && x.ruling.decision !== 'rejected' && x.ruling.actions) || x.minutes.actions || [])).map(ac => {
         const c = m.commands.find(cc => cc.id === ac.command_id);
         if (!c) return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st ' + (x.awaitingRuling ? 'st-awaiting_approval' : x.ruling && x.ruling.decision === 'rejected' ? 'st-declined' : 'st-new') }, x.awaitingRuling ? '待裁示' : x.ruling && x.ruling.decision === 'rejected' ? '不執行' : '未建立'), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || '')));
-        const known = m.accounts.some(a => isMe(c.cmd.to, a));
+        const known = inRoster(c.cmd.to) && (!NICKS.size ? m.accounts.some(a => isMe(c.cmd.to, a)) : true);
         return el('li', {}, el('div', { class: 'c-row' }, el('span', { class: 'st st-' + c.view }, ST_ZH[c.view] || c.view), el('b', {}, partyName(ac.to)), el('span', {}, ac.task || '')),
-          !known ? el('p', { class: 'hint warn' }, `收件人 ${c.cmd.to && c.cmd.to.account} 不在代理人名單裡（可能打錯），對方可能收不到。`) : null,
+          !known ? (rosterWarn(c.cmd.to) || el('p', { class: 'hint warn' }, `收件人 ${c.cmd.to && c.cmd.to.account} 不在代理人名單裡（可能打錯），對方可能收不到。`)) : null,
           gateButtons(c)); })) : null,
       !x.open && sendMsg && sendMsg.where === x.id ? el('p', { class: 'm-status ' + (sendMsg.bad ? 'bad' : 'ok') }, sendMsg.text) : null,
       x.awaitingRuling && isAdmin ? rulingPanel(x, m) : x.awaitingRuling ? el('p', { class: 'hint' }, '結論等老師裁示，核准後才會派出指令。') : null) : null;
@@ -720,14 +732,14 @@
     tx.addEventListener('input', () => { draft.text = tx.value; });
     const kind = el('select', { id: 'tkind' }, ...[['opinion', '意見'], ['question', '提問'], ['instruction', '指示']].map(([v, l]) => { const o = el('option', { value: v }, l); if (v === draft.kind) o.selected = true; return o; }));
     kind.addEventListener('change', () => { draft.kind = kind.value; });
-    const mention = att.map((p, i) => { const id = 'tat' + i; const cb = el('input', { id, type: 'checkbox' }); cb.checked = draft.at.has(i); cb.addEventListener('change', () => { cb.checked ? draft.at.add(i) : draft.at.delete(i); }); return el('label', { class: 'ck', for: id }, cb, '@' + partyName(p) + (p.team ? '·' + p.team : '')); });
+    const mention = att.map((p, i) => { const id = 'tat' + i; const cb = el('input', { id, type: 'checkbox' }); cb.checked = draft.at.has(i); cb.addEventListener('change', () => { cb.checked ? draft.at.add(i) : draft.at.delete(i); }); return el('label', { class: 'ck', for: id }, cb, '@' + partyTeam(p)); });
     return el('div', {},
       ag.goal ? el('p', { class: 'r-content' }, ag.goal) : null,
       (ag.agenda || []).length ? el('ol', { class: 'agenda' }, ...(ag.agenda || []).map(t => el('li', {}, t))) : null,
       ag.source_request ? el('p', { class: 'hint' }, `由 ${partyName(ag.requested_by)} 提出會議請求，老師核准後開會。`) : null,
       ag.project_id && m.projects.find(q => q.id === ag.project_id) ? el('p', { class: 'hint' }, '屬於專案：', el('button', { class: 'btn sm', type: 'button', onclick: () => openProjects(ag.project_id) }, m.projects.find(q => q.id === ag.project_id).title + ' ›')) : null,
-      el('p', { class: 'hint' }, `主持人：${partyName(ag.host)}${ag.host && ag.host.team ? '·' + ag.host.team : ''}　截止：${isNaN(x.deadline) ? '—' : fmtFull.format(x.deadline)}`),
-      el('div', { class: 'chiplist' }, ...att.map(p => el('span', { class: 'mchip' + (spoke(p) ? ' open' : '') }, (spoke(p) ? '✓ ' : '') + partyName(p) + (p.team ? '·' + p.team : '')))),
+      el('p', { class: 'hint' }, `主持人：${partyTeam(ag.host)}　截止：${isNaN(x.deadline) ? '—' : fmtFull.format(x.deadline)}`),
+      el('div', { class: 'chiplist' }, ...att.map(p => el('span', { class: 'mchip' + (spoke(p) ? ' open' : '') }, (spoke(p) ? '✓ ' : '') + partyTeam(p)))),
       mins,
       el('h2', {}, `討論（${x.msgs.length}）`),
       msgs.length ? el('ol', { class: 'thread' }, ...msgs) : el('p', { class: 'hint' }, '還沒有人發言。受邀的代理人下次排程執行時會讀議程並發言。'),
@@ -878,7 +890,7 @@
   const PROJ_ST = { active: ['st-in_progress', '進行中'], paused: ['st-received', '暫停'], done: ['st-done', '完成'] };
   const PREQ_ST = { pending: ['st-awaiting_approval', '待核准'], approved: ['st-done', '已成立'], rejected: ['st-declined', '已駁回'] };
   const partyOfKey = (m, k) => { const a = m.accounts.find(q => q.key === k); return a ? { account: a.account, team: a.team ? a.team.label : null } : null; };
-  const chipsOf = list => el('div', { class: 'chiplist' }, ...(list || []).map(p => el('span', { class: 'mchip' }, partyName(p) + (p.team ? '·' + p.team : ''))));
+  const chipsOf = list => el('div', { class: 'chiplist' }, ...(list || []).map(p => el('span', { class: 'mchip' }, partyTeam(p))));
   function projReqItem(r, m) {
     const q = r.req, st = PREQ_ST[r.status] || PREQ_ST.pending;
     const pj = r.decision && r.decision.project_id ? m.projects.find(x => x.id === r.decision.project_id) : null;
@@ -927,7 +939,7 @@
       el('div', { class: 'c-row' }, el('span', { class: 'st ' + st[0] }, st[1]), el('span', { class: 'muted' }, `建立 ${fmtFull.format(p.ts)}${isNaN(x.deadline) ? '' : '　期限 ' + fmtFull.format(x.deadline)}`)),
       p.goal ? el('p', { class: 'r-content' }, p.goal) : null,
       p.source_request ? el('p', { class: 'hint' }, `由 ${partyName(p.requested_by)} 提出專案請求，老師核准後成立。`) : null,
-      el('p', { class: 'hint' }, `負責人：${partyName(p.lead)}${p.lead && p.lead.team ? '·' + p.lead.team : ''}`),
+      el('p', { class: 'hint' }, `負責人：${partyTeam(p.lead)}`),
       chipsOf(p.members),
       el('h2', {}, `指令（完成 ${x.done}/${x.cmds.length}）`),
       cmds.length ? el('ul', { class: 'clist' }, ...cmds) : el('p', { class: 'hint' }, '還沒有這個專案的指令。到人物側欄下指令時選這個專案，或開一場專案會議。'),

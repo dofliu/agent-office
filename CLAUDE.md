@@ -36,6 +36,7 @@
 | 2026-11-03 | 加入**多間會議室與專案**：北側多 2 間 6 人小會議室，進行中的會議依人數分到 B+／會議室 2／會議室 3；新增專案（老師建立或核准代理人的專案請求），南側每個進行中專案一間專案辦公室，成員做專案的工作時才過去（老師選的方案）。看板加「專案」頁，下指令、發起會議可選專案；`Code.gs` 加 `createProject`、`setProjectStatus`、`decideProjectRequest`；兩個技能都更新。 |
 | 2026-11-03 | 加入**讀取密碼**（老師選方案 C）：Apps Script 設 `READ_KEY` 後，沒密碼只看得到公開精簡版（人物、狀態、數量；沒有內容與 email），看板右上「輸入讀取密碼」看完整內容。 |
 | 2026-11-03 | 加入**會議請求**：代理人需要別人一起決定時提出 `會議請求_<request_id>.json`，看板「會議」頁與管理面板可「核准並開會」或駁回，`Code.gs` 加 `decideMeetingRequest`，技能加格式 7、8 與步驟 D。 |
+| 2026-11-03 | 依代理人會議結論更新：**員工形象**（`M202611031429y54f`）A 方案暱稱改原創（晨禾、岳衡、拉氏、青嵐、驗算君），同一帳號在不同 TEAM 長相相同、只換制服顏色，拿掉動漫配件；B 方案（水門提的 `office.js` 方案）人物加眼睛（會眨眼）、眉毛、嘴、脖子、手掌、左右腿（走路擺動、坐下彎膝）、鞋子，`look` 多 `eyes`／`glasses`／`badge`／`height` 等欄位。同名的人在會議與指令裡加 TEAM。**園區化**（`M202611031458w663`）先做「收件人不在名冊就標紅」，其餘待老師決定（`roadmap.md` 第 7 項）。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
 
@@ -111,7 +112,7 @@ GitHub Pages：index.html
 - **樓層配置**（`buildFloor()`）：走廊南側是 `officeTeams` 各一間辦公室（每 4 人一組桌，自動加組），接著每個進行中專案一間專案辦公室（`buildTableRoom()`，8 人桌＋專案看板）；北側是 B+ 會議／試播室、會議室 2、會議室 3（`buildTableRoom()`，6 人桌＋牆上螢幕）、茶水間、錄課棚（`buildStudio()`，程式產生）、共用座位（有其他 TEAM 才出現）。`assignMeetRooms()` 把進行中的會議依與會人數分到 B+ 與兩間小會議室（超過 3 場的借用 B+），開會的人走到自己那場的房間（`meetRoomOf()`）；最新工作帶 `project_id` 的人在專案辦公室工作（`projRoomOf()`）；`drawRoomScreens()` 畫小會議室與專案看板。走廊兩端各一間電話亭（`buildBooth()`，屋頂燈綠＝空、紅＝使用中）。每個座位雙螢幕，桌子是電動升降桌（`addLift()`／`updateLift()`：工作中每 1～3 分鐘有 35% 機率站著，或用動作「站著工作」）。B+ 在 002 會議室上加了西牆看板牆（`drawKanban()`，即時顯示每位代理人的狀態）、東牆 1080p 試播投影（`drawTrial()`）與直立副螢幕；點這些螢幕鏡頭會轉到正面，選單可「打開規劃頁」。桌椅、白板、飲水機從 001 場景 glb 複製；會議室與茶水間直接用 002、004 的 glb，牆壓低到 1 m。
 - **場景來源**：`config.sceneBase` = `https://raw.githubusercontent.com/dofliu/indoor-scenes/main/`（indoor-scenes 已公開）。場景用二進位 `.glb`；座標 Blender Z-up → three `(x, z, -y)`。indoor-scenes 的檔名或錨點命名改了，這裡會壞。
 - **名牌**：只顯示狀態點＋暱稱（老師要求精簡），詳細資訊在側欄。
-- **暱稱與外觀**：`config.js` 的 `agents` 以 email＋TEAM 對應暱稱（小櫻、佐助…）和 3D 外觀 `look`（髮色、髮型、衣服、膚色、配件）。介面平常顯示暱稱，側欄標題下方仍顯示 email 與 TEAM。TEAM 比對會去掉開頭的 `TEAM `／`Personal `（`Personal Pro` = `Pro`）。沒列到的組合顯示 email 的 @ 前段。`app.js` 的 `agentCfg()`／`partyName()` 處理會議與指令裡的名字；`office.js` 的 `dress()` 依 `look` 加頭髮與配件。新增代理人時記得在這裡補一列。
+- **暱稱與外觀**：`config.js` 的 `agents` 以 email＋TEAM 對應暱稱（晨禾、岳衡…；2026-11-03 起同一帳號在各 TEAM 同名、只換制服顏色，不用動漫角色名與配件）和 3D 外觀 `look`（髮色、髮型、衣服、膚色、褲子、鞋子、眼睛、眉毛、眼鏡、識別證、身高；舊的 `extra` 配件仍支援）。同名的人在會議與指令裡顯示「暱稱·TEAM」（`partyName()`／`partyTeam()`）；收件人不在 `agents` 名冊時標紅（`inRoster()`）。介面平常顯示暱稱，側欄標題下方仍顯示 email 與 TEAM。TEAM 比對會去掉開頭的 `TEAM `／`Personal `（`Personal Pro` = `Pro`）。沒列到的組合顯示 email 的 @ 前段。`app.js` 的 `agentCfg()`／`partyName()` 處理會議與指令裡的名字；`office.js` 的 `dress()` 依 `look` 加頭髮與配件。新增代理人時記得在這裡補一列。
 - **會議泡泡**：在會議室坐著、45 分鐘內發過言的人輪流冒一個短泡泡（最多 14 字，每 6 秒換一位，同時只有一個），見 `meetingTalk()`。
 - **互動（只在本機畫面播放，不寫入雲端）**：點人物出現動作選單（查看紀錄與指令、打招呼、伸懶腰、去茶水間、去會議室、到白板前、巡一圈、回座位工作、停止回到自動）；點設備（茶水間的咖啡機／微波爐／冰箱／販賣機／水槽、各辦公室與會議室的飲水機）可直接啟動（發光、冒蒸氣、完成時冒泡泡如「叮！」），或「叫人來用」挑一位代理人走過去用。實作在 `office.js` 的 `DEV`、`addDevice()`、`planFor()`／`command()`（`ag.ov` 是一串步驟，做完回到資料驅動的狀態；資料更新時若正在被指揮，先做完再換狀態）。`window.cloudlogOffice.command(key, kind)` 可從外部觸發。
 - **鏡頭導向**（`flyTo()`／`stepFly()`，0.9 秒緩動，使用者一拖曳就取消）：點房間地板 → `focusRoom()` 整間房間＋房間選單（在場的人、回到全景）；點投影幕、看板牆、試播投影、直立副螢幕 → `focusFace()` 正面特寫＋選單（打開會議紀錄／規劃頁）；點座位螢幕（`userData.deskScreen`）→ 螢幕特寫＋「查看紀錄與指令」；點人物、設備 → `focusPoint()` 平移並拉近到 8 m／6 m 內。直式畫面時螢幕選單放在螢幕下方（`menu.below`）。「重設視角」與選單的「回到全景」用 `fit(true)` 飛回全景。`controls.minDistance` 改為 1.2 才能特寫螢幕。
@@ -158,4 +159,5 @@ GitHub Pages：index.html
 - 雲端紀錄裡有一筆 TEAM 誤填為 `DofPJ`（應為 NCUT_PJ），老師可在管理模式自行改正。
 - 有讀取密碼後，`js/config.js` 裡的 email 仍然公開在 repo 裡；要連這個也藏，得改成在 config 寫雜湊碼（尚未支援），見 `docs/privacy.md`。
 - 會議 `M202611030011skun` 的議程裡有一條帶 `sk=` 分享金鑰的舊 Artifact 網址，已提醒老師到 claude.ai 撤銷分享或刪除舊 Artifact。
+- 導覽影片（`promo/`）是 2026-11-03 改暱稱與外觀之前拍的，畫面裡還是舊暱稱與動漫配件；要公開前最好重拍。
 - 可以考慮的下一步：見 `roadmap.md`（影片發布、邀請其他帳號、電話亭線上會議等）。

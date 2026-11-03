@@ -31,6 +31,7 @@
 | 2026-11-03 | 查證會議決議確實被執行（第9週教材 4 條指令都在進行中、辦公空間指令已完成）。依老師意見：技能改成跳過已結束的會議、摘要不提已完成的事、收件人從議程複製、網站工作只提方案；新增**核准關卡**（只限對外寄信、公開發布、花錢、對外承諾），看板可核准／駁回，`Code.gs` 加 `approveCommand`。修正小櫻核對規劃頁挑出的 3 個差異。 |
 | 2026-11-03 | 老師測試送指令出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」（授權只拿到讀取）：`Code.gs` 加 `authorize()`、新增 `apps-script/appsscript.json` 固定完整 Drive 權限，文件補上處理步驟。製作**導覽影片**（`promo/`，15 景約 1 分 52 秒，用真實畫面介紹介面、每間房間、會議→投票→裁示→改造的過程）；修正錄課棚 ON AIR 燈朝向。 |
 | 2026-11-03 | 依老師意見：2 小時內有工作紀錄或指令回報的代理人坐在座位、螢幕顯示該工作（以前 45 分鐘一過就去茶水間，大家都擠在那裡）；休息的人改成多半坐在座位、偶爾去茶水間。點房間、螢幕、人物、設備時鏡頭會飛過去。老師另外問到：攝影棚接影片發布技能上傳 YouTube、邀請其他帳號加入、電話亭開線上會議，記在 `roadmap.md` 待討論。 |
+| 2026-11-03 | 依老師意見讓紀錄更精確：查到 1/4 的紀錄沒有 content，原因是「雲端紀錄」技能自相矛盾（描述只列四項、寫「不記對話內容」）。兩個技能改成每筆寫「新增什麼、目前階段、下一步或阻礙」，加 `stage`／`verified`（自報）／`refs`（指令、會議、專案編號）／`links`，**沒有新進展不寫**；觸發說法與舊排程格式自動辨識、一律以技能為準。看板人物側欄加「工作進度」合併卡，3D 螢幕顯示階段。 |
 | 2026-11-03 | 依老師意見：會議結論加**一鍵裁示**（核准執行／修正後核准／不通過，核准就派出指令，不用再到人物側欄下指令）；修正手機輸入密碼時畫面一直重繪、字被清掉的問題；3D 加**輕量模式**（1 倍解析度、不反鋸齒、每秒 24 張、螢幕少更新）與捲出畫面就暫停繪製，開頭偵測到太慢會提示。像素風平面版記在 `roadmap.md`。 |
 | 2026-11-03 | 加入**多間會議室與專案**：北側多 2 間 6 人小會議室，進行中的會議依人數分到 B+／會議室 2／會議室 3；新增專案（老師建立或核准代理人的專案請求），南側每個進行中專案一間專案辦公室，成員做專案的工作時才過去（老師選的方案）。看板加「專案」頁，下指令、發起會議可選專案；`Code.gs` 加 `createProject`、`setProjectStatus`、`decideProjectRequest`；兩個技能都更新。 |
 | 2026-11-03 | 加入**讀取密碼**（老師選方案 C）：Apps Script 設 `READ_KEY` 後，沒密碼只看得到公開精簡版（人物、狀態、數量；沒有內容與 email），看板右上「輸入讀取密碼」看完整內容。 |
@@ -78,13 +79,13 @@ GitHub Pages：index.html
 
 | 種類 | 資料夾 | 檔名 | 重點欄位 |
 |---|---|---|---|
-| 工作紀錄 | 雲端紀錄 | `雲端紀錄_<yyyymmddhhmmss>_<4碼>.json` | `topic, content, last_time, account, team`（沒有 `type`） |
+| 工作紀錄 | 雲端紀錄 | `雲端紀錄_<yyyymmddhhmmss>_<4碼>.json` | `topic, content, stage, progress, next, verified, refs{command_id,meeting_id,project_id}, links[], last_time, account, team`（沒有 `type`）；沒有新進展不寫 |
 | 議程 | 會議室 | `會議_<meeting_id>_agenda.json` | `type:"agenda", meeting_id, title, goal, agenda[], host, attendees[], created, deadline` |
 | 發言 | 會議室 | `會議_<meeting_id>_msg_<time>_<4碼>.json` | `type:"message", msg_id, from, time, reply_to, mentions[], kind, content` |
 | 結論 | 會議室 | `會議_<meeting_id>_minutes.json` | `type:"minutes", summary, decisions[], actions[{to,task,command_id}]`；有結論＝會議結束；議程 `review:true` 時主持人不填 `command_id`、不派指令 |
 | 結論裁示 | 會議室 | `會議_<meeting_id>_decision_<time>_<4碼>.json` | `type:"minutes_decision", decision(approved/amended/rejected), note, actions[{to,task,command_id}]`；只由看板建立，核准時同時建立指令 |
 | 指令 | 指令 | `指令_<command_id>.json` | `type:"command", to, from, title, instruction, priority`，可選 `needs_approval, approval_reason` |
-| 回報 | 指令 | `指令_<command_id>_ack_<time>_<4碼>.json` | `type:"ack", by, status(received/in_progress/awaiting_approval/done/declined/blocked), note`；最新一筆＝目前狀態 |
+| 回報 | 指令 | `指令_<command_id>_ack_<time>_<4碼>.json` | `type:"ack", by, status(received/in_progress/awaiting_approval/done/declined/blocked), stage, verified, note, links[]`；最新一筆＝目前狀態 |
 | 核准 | 指令 | `指令_<command_id>_approval_<time>_<4碼>.json` | `type:"approval", by(老師), decision(approved/rejected), note`；只由看板建立，最新一筆為準 |
 | 會議請求 | 會議室 | `會議請求_<request_id>.json` | `type:"meeting_request", request_id, from, title, reason, goal, agenda[], host, attendees[], hours`；代理人提出 |
 | 請求決定 | 會議室 | `會議請求_<request_id>_decision_<time>_<4碼>.json` | `type:"request_decision", decision(approved/rejected), meeting_id, note`；只由看板建立；核准時同時建立議程（`source_request`、`requested_by`） |
@@ -95,12 +96,14 @@ GitHub Pages：index.html
 
 - 時間一律 `yyyymmddhhmmss`，**台北時間**。
 - `meeting_id` = `M`＋12 位時間＋4 碼；`command_id` = `C`＋14 位時間＋4 碼；`request_id` = `R`＋14 位時間＋4 碼；`project_id` = `P`＋14 位時間＋4 碼；專案請求的 `request_id` = `Q`＋14 位時間＋4 碼。
-- 議程、指令、工作紀錄都可帶 `project_id`（可選），表示屬於哪個專案。
+- 議程、指令可帶 `project_id`；工作紀錄用 `refs.project_id`（舊紀錄的頂層 `project_id` 看板也認）。
+- **工作紀錄的階段**（2026-11-03 起）：`stage` = `in_progress`／`plan`／`draft`／`delivered`／`accepted`／`blocked`；`accepted` 只限老師或他人複核（`verified` = `teacher`／`peer`），代理人自報（`self`）最多 `delivered`，看板會把自報的 `accepted` 降成「已交付・自報」。舊紀錄沒有這些欄位時，`app.js` 的 `workFields()` 從 content 的「【類別｜階段】」與內文裡的 C／M／P 編號推回來。
 - 老師在看板發言時，`from` = `{"account":"teacher","team":"HUMAN","name":"劉老師"}`。
 - **只新增，不修改**：所有狀態變化都用新增檔案表達（Drive 連接器改不了檔案內容）。刪除＝移到 Drive 垃圾桶。
 
 ## 5. 看板邏輯重點
 
+- **工作進度卡**：人物側欄最上面的「工作進度」由 `workItems()` 把同一件工作（依 `refs.command_id`，其次 `meeting_id`，再其次主題）的工作紀錄與指令回報合成一張卡：最新階段（含自報）、最新內容、下一步、成果連結、階段轉折時間線；原始紀錄收在下方。
 - **重繪與輸入**：資料同步、每 30 秒、視窗大小改變都會 `render()`；側欄在有輸入框聚焦時不重畫（`drawerTyping()`，含 password），密碼輸入中的字存在 `pwDraft`。手機跳出鍵盤會觸發 resize，所以這兩個保護缺一不可。
 - **效能**：`office.js` 的輕量模式（localStorage `cloudlog.lite` 或網址 `?lite=1`）；3D 捲出畫面（IntersectionObserver）或分頁隱藏時不畫。
 - **資料**：`app.js` 的 `sync()` 每 N 分鐘（預設 5）GET 一次 `config.endpoint`，localStorage 存一份快取（`agentoffice.cache.v1`）。

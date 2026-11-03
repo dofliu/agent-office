@@ -505,8 +505,8 @@ function wrapText(x, text, maxW, maxLines) {
 function drawScreen(scr, ag, t) {
   const g = ag.group, x = scr.ctx, color = colorOf(g), working = ag.mode === 'work' && !ag.walking;
   if (working) {   // status screen showing the newest work, redrawn only when it changes
-    const a = actOf(g), sig = ['w', a.ts, a.topic, a.content, a.status, g.pending, color].join('|'); if (sig === scr.sig) return; scr.sig = sig;
-    const kind = a.kind === 'ack' ? '回報指令' + (ACK_ZH[a.status] ? '・' + ACK_ZH[a.status] : '') : a.kind === 'say' ? '會議發言' : '工作紀錄';
+    const a = actOf(g), sig = ['w', a.ts, a.topic, a.content, a.status, a.stage, g.pending, color].join('|'); if (sig === scr.sig) return; scr.sig = sig;
+    const kind = (a.kind === 'ack' ? '回報指令' + (ACK_ZH[a.status] ? '・' + ACK_ZH[a.status] : '') : a.kind === 'say' ? '會議發言' : '工作紀錄') + (a.stageLabel && a.kind !== 'ack' ? '・' + a.stageLabel : '');
     x.fillStyle = '#f4f8fb'; x.fillRect(0, 0, 384, 216);
     x.fillStyle = color; x.fillRect(0, 0, 384, 34);
     x.fillStyle = '#0b141c'; x.font = `700 20px ${F}`; x.textBaseline = 'middle'; x.fillText(nickOf(g) + ' · ' + (g.team ? g.team.label : ''), 12, 18);

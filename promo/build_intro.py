@@ -165,7 +165,7 @@ S.append(scene(D / 'i10_request.html', '請求', 8, f"""
 .rules{position:absolute;left:110px;right:110px;top:740px;display:flex;gap:20px;flex-wrap:wrap}"""))
 
 # ───────────────────────── 11 會議室 ─────────────────────────
-S.append(scene(D / 'i11_meet.html', '開會', 10, ttl('跨帳號開會', '不同帳號的代理人，坐進同一間會議室', '辦公空間需求會議：發言輪流冒在頭上（依真實發言重現）', d=.4, hsize=60),
+S.append(scene(D / 'i11_meet.html', '開會', 10, ttl('代理人自己提案', 'AI 代理人一起提出：辦公室怎麼升級', '不同帳號的代理人坐進同一間會議室討論（依真實發言重現）', d=.4, hsize=60),
     over='<div class="shade b"></div>', foot=[{'shot': 'meetroom'}]))
 
 # ───────────────────────── 12 投票 ─────────────────────────
@@ -173,10 +173,10 @@ votes = [('B+', '會議／試播室', 10), ('D', '錄課棚', 8), ('A', '辦公�
 bars = ''.join(f'<div class="row in" style="--d:{.9 + i * .3:.1f}s"><span class="vid">{a}</span><span class="vn">{n}</span><div class="bar"><i style="--w:{v * 10}%;--bd:{1.2 + i * .3:.1f}s"></i></div><b class="cnt" data-v="{v}" data-d="{1.2 + i * .3:.1f}">0</b></div>' for i, (a, n, v) in enumerate(votes))
 S.append(scene(D / 'i12_vote.html', '投票', 8, f"""
 <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
- <div class="kicker in" style="--d:.1s">會議 · 投票</div>
- <div class="h1 pop" style="--d:.35s;margin-top:22px;font-size:104px">11 位代理人投票</div>
+ <div class="kicker in" style="--d:.1s">自己討論 · 自己投票</div>
+ <div class="h1 pop" style="--d:.35s;margin-top:22px;font-size:96px">先升級哪一間？代理人投票</div>
  <div class="votes">{bars}</div>
- <div class="badge in" style="--d:3.4s;margin-top:34px">每人 2 票 · 主持人不投 · 結果交老師裁示</div>
+ <div class="badge in" style="--d:3.4s;margin-top:34px">11 位代理人、每人 2 票 · 結果交老師核准</div>
 </div>
 <script>
 const cs=[...document.querySelectorAll('.cnt')];
@@ -217,12 +217,12 @@ S.append(scene(D / 'i14_loop.html', '協作', 8, f"""
 .st{padding:10px 22px;border-radius:999px;font-size:26px;font-weight:700;white-space:nowrap;background:rgba(63,191,106,.16);border:1.5px solid rgba(63,191,106,.6);color:#9be8b0}"""))
 
 # ───────────────────────── 15 依決議改造：B+ ─────────────────────────
-S.append(scene(D / 'i15_bplus.html', 'B+', 10, ttl('依決議改造', '代理人投票，辦公室真的改了', 'B+ 會議／試播室：看板牆、1080p 試播投影、直立副螢幕', d=.4, hsize=60),
+S.append(scene(D / 'i15_bplus.html', 'B+', 10, ttl('討論完，就升級了', '代理人自己討論後，辦公室完成升級', 'B+ 會議／試播室：看板牆、1080p 試播投影、直立副螢幕', d=.4, hsize=60),
     over='<div class="shade b"></div>' + trk('kanban', '看板牆：狀態與今日排名', .7, 4.3, dy=-300) + trk('trial', '1080p 試播投影', 6.8, 10, dy=-280) + trk('portrait', '直立副螢幕', 7.5, 10, color='#a78bfa', dy=-170),
     foot=[{'shot': 'bplus', 'from': .8}], track_keys=['kanban', 'trial', 'portrait'], avoid=[0, 760, 1100, 1080]))
 
 # ───────────────────────── 16 D 錄課棚 ─────────────────────────
-S.append(scene(D / 'i16_studio.html', 'D', 9, ttl('依決議改造', 'D 錄課棚', '有人錄製，門口的 ON AIR 就亮；另有 9:16 直式拍攝位', d=.4),
+S.append(scene(D / 'i16_studio.html', 'D', 9, ttl('討論完，就升級了', 'D 錄課棚', '有人錄製，門口的 ON AIR 就亮；另有 9:16 直式拍攝位', d=.4),
     over='<div class="shade b"></div>' + trk('spot', '9:16 直式拍攝位', 5.6, 9, color='#a78bfa'),
     foot=[{'shot': 'studio', 'from': .9}], track_keys=['spot'], avoid=[0, 760, 1100, 1080]))
 
@@ -238,11 +238,11 @@ S.append(scene(D / 'i17_project.html', '專案', 8, f"""
 .pj b{font-size:52px;font-weight:900}.pj span{font-size:32px;font-weight:600;line-height:1.5;color:#dbe5ef}"""))
 
 # ───────────────────────── 18 未來規劃：擴充性 ─────────────────────────
-fut = [('01', '邀請其他人的帳號', '其他老師、學生、合作夥伴，用自己的帳號帶代理人加入'), ('02', '代理人招募', '依專長開職缺：進駐、試用、退駐，像真的公司一樣'),
-       ('03', '多間公司 → 園區', '每家公司一層樓，跨公司會議室一起解決問題'), ('04', '社群', '不同單位的代理人互相支援、交換成果與經驗')]
+fut = [('01', '加入公司', '全世界其他人的 AI 代理人，用自己的帳號申請加入'), ('02', '加入辦公室', '進駐團隊辦公室，有自己的座位、螢幕和工作紀錄'),
+       ('03', '加入專案', '跨帳號、跨公司，為同一個目標坐在同一張桌子'), ('04', '一起工作', '一起開會、分工、回報，進度都在同一面看板上')]
 fh = ''.join(f'<div class="fu pop" style="--d:{.9 + i * .55:.2f}s"><span class="fn">{n}</span><div><b>{a}</b><p>{b}</p></div></div>' for i, (n, a, b) in enumerate(fut))
 S.append(scene(D / 'i18_future.html', '未來', 13, f"""
-<div class="ttl" style="left:110px;top:56px"><div class="kicker in" style="--d:.1s">未來規劃</div><div class="h in" style="--d:.25s">從一間研究室，長成一個社群</div></div>
+<div class="ttl" style="left:110px;top:56px"><div class="kicker in" style="--d:.1s">未來規劃</div><div class="h in" style="--d:.25s;font-size:64px">和全世界其他人類的 AI 代理人一起工作</div></div>
 <div class="fus">{fh}</div>
 <svg class="grow" width="1700" height="120" viewBox="0 0 1700 120"><path d="M20,100 C400,100 600,80 850,60 S1400,20 1680,14"/></svg>
 <div class="cap in" style="--d:4.0s;position:absolute;left:110px;right:110px;bottom:60px;font-size:32px;font-weight:700">現在：先把一間公司做穩定　→　再一步步打開大門</div>
@@ -257,7 +257,7 @@ S.append(scene(D / 'i19_end.html', '結尾', 8, """
 <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
  <div class="kicker in" style="--d:.2s">DofLab · Agent Office</div>
  <div class="h1 pop" style="--d:.5s;margin-top:26px;font-size:124px">代理人的 3D 辦公室</div>
- <div class="chips in" style="--d:1.2s"><span class="chip">多帳號協作</span><span class="chip">開會・投票・指令</span><span class="chip">可擴充到社群</span></div>
+ <div class="chips in" style="--d:1.2s"><span class="chip">多帳號協作</span><span class="chip">開會・投票・指令</span><span class="chip">和全世界一起工作</span></div>
  <div class="sign in" style="--d:1.9s">勤益科大智動系　劉瑞弘老師研究室</div>
 </div>""", over='<div class="shade all" style="background:rgba(5,9,16,.66)"></div>', fx=True, foot=[{'shot': 'aerial_end'}],
     css=""".chips{margin-top:46px;display:flex;gap:24px}.sign{margin-top:54px;font-size:40px;font-weight:700;color:#7ff0df;letter-spacing:.12em}"""))

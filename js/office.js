@@ -13,11 +13,12 @@ const box = document.getElementById('office'), info = document.getElementById('o
 const SCENE_BASE = (CFG.sceneBase || './').replace(/\/?$/, '/');
 const LIB_OFFICE = SCENE_BASE + 'scenes/001_open_office/', LIB_MEET = SCENE_BASE + 'scenes/002_meeting_room/', LIB_PANTRY = SCENE_BASE + 'scenes/004_pantry/';
 const LIB_LOUNGE = SCENE_BASE + 'scenes/005_lounge/';   // 休憩交誼區（2026-11-05 加入）
-const USE_ZH = { coffee: '泡咖啡', microwave: '微波便當', fridge: '開冰箱', vending: '買飲料', sink: '洗杯子', water: '倒水', tv: '轉電視' };
+const USE_ZH = { coffee: '泡咖啡', microwave: '微波便當', juicer: '打果汁', fridge: '開冰箱', vending: '買飲料', sink: '洗杯子', water: '倒水', tv: '轉電視' };
 const LOUNGE_ZH = { sofa: '坐沙發看電視', beanbag: '窩在懶骨頭', pool: '打撞球', foosball: '玩手足球' };
 // Devices people (and the viewer) can operate. fx = glow colour; steam = little puffs while running; done = bubble when finished.
 const DEV = {
   coffee:    { name: '咖啡機', act: '沖一杯咖啡', run: '沖煮中', fx: 0xfff1c9, steam: true, done: '咖啡好了 ☕' },
+  juicer:    { name: '果汁機', act: '打一杯果汁', run: '攪打中', fx: 0xffa84a, done: '果汁好了 🍊' },
   microwave: { name: '微波爐', act: '加熱便當',   run: '加熱中', fx: 0xffb347, done: '叮！' },
   fridge:    { name: '冰箱',   act: '打開冰箱',   run: '門開著', fx: 0x9fd8ff, done: '關門' },
   vending:   { name: '販賣機', act: '買一瓶飲料', run: '出貨中', fx: 0xb9f0c4, done: '咚！' },
@@ -429,6 +430,19 @@ function setOnAir(on) {
 function buildPantry(room) {
   const { A, door } = buildLibRoom(room, lib.pantryScene, lib.pantryNav, pantryMeta, '茶水間');
   room.anchors = { devices: A.filter(a => a.type === 'POI'), seats: A.filter(a => a.type === 'SEAT'), door };
+  // 果汁機（老師 2026-11-05 指令 C202611052023133izz）：放在咖啡機與微波爐之間的檯面上，程式產生模型
+  const mw = room.anchors.devices.find(a => a.use === 'microwave');
+  if (mw) {
+    const ja = { ...mw, id: room.id + ':POI_juicer_01', use: 'juicer', position: [mw.position[0] - .65, mw.position[1], 0] };
+    room.anchors.devices.push(ja);
+    const jg = new THREE.Group(), p = B2T(ja.position); jg.position.set(p.x, .92, p.z);
+    const dark = new THREE.MeshStandardMaterial({ color: 0x2b3138, roughness: .5 });
+    const jar = new THREE.MeshStandardMaterial({ color: 0xffa84a, roughness: .2, transparent: true, opacity: .8 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(.13, .15, .16, 20), dark); base.position.y = .08; jg.add(base);
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(.14, .1, .3, 20), jar); cup.position.y = .31; jg.add(cup);
+    const lid = new THREE.Mesh(new THREE.CylinderGeometry(.11, .14, .04, 20), dark); lid.position.y = .48; jg.add(lid);
+    scene.add(jg); room.extra.push(jg);
+  }
   for (const a of room.anchors.devices) addDevice(room, a, scene, room.extra);
 }
 // 休憩區（indoor-scenes 005）：沙發、懶骨頭、撞球、手足球、電視。休息的人有時來這裡坐坐或打球。

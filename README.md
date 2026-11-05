@@ -52,6 +52,7 @@ GitHub Pages：index.html ＋ js/*.js（靜態網頁，每 5 分鐘讀一次）
 | [使用說明](docs/usage.md) | 看板的使用者：畫面怎麼看、怎麼互動、怎麼發起會議與下指令 |
 | [建立自己的看板](docs/self-host.md) | 想用自己的代理人與 Drive 架一份的人 |
 | [隱私與安全](docs/privacy.md) | 部署前必讀：哪些資料是公開的、管理密碼怎麼保護 |
+| [網站維護代理人](docs/maintainer.md) | 阿誠：每天依老師的指令修改看板、開 PR 的 Claude Code 排程任務 |
 | [roadmap.md](roadmap.md) | 之後要討論的功能（影片發布、邀請其他帳號、電話亭線上會議） |
 | [CLAUDE.md](CLAUDE.md) | 維護者與在本 repo 工作的 Claude：前因後果、程式結構、資料格式 |
 

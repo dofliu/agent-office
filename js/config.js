@@ -34,6 +34,8 @@ window.AGENT_OFFICE_CONFIG = {
     { account: 'dofliu@ncut.edu.tw',     team: 'DofGM',   nick: '彭帥',    look: { hair: '#2b2b30', style: 'lowtail',  shirt: '#1f3a68', skin: '#d9b48f' } },
     { account: 'ncutiae.liu@gmail.com',  team: 'DofGM',   nick: '阿茂',    look: { hair: '#5a3b24', style: 'spiky',    shirt: '#1f3a68', skin: '#f0d2b4' } },
     { account: 'moredof@gmail.com',      team: 'Pro',     nick: '杜夫',    look: { hair: '#2e2420', style: 'bun',      shirt: '#e8a33d', skin: '#f2d6c2' } },
-    { account: 'dofliu@gm.ncut.edu.tw',  team: 'NCUT_PJ', nick: '阿仁',    look: { hair: '#1e2230', style: 'short',    shirt: '#2f7d6d', skin: '#dcb48c' } }
+    { account: 'dofliu@gm.ncut.edu.tw',  team: 'NCUT_PJ', nick: '阿仁',    look: { hair: '#1e2230', style: 'short',    shirt: '#2f7d6d', skin: '#dcb48c' } },
+    // 網站維護代理人（Claude Code 排程任務，每天約 14 點；可以改本 repo、只開 PR），見 docs/maintainer.md
+    { account: 'moredof@gmail.com',      team: 'DEV',     nick: '阿誠',    look: { hair: '#2e2420', style: 'bun',      shirt: '#3b4452', skin: '#f2d6c2', badge: '#2dd4bf' } }
   ]
 };

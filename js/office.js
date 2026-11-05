@@ -12,7 +12,9 @@ const box = document.getElementById('office'), info = document.getElementById('o
 // Scenes come straight from the indoor-scenes repo (config.sceneBase), so updates there show up here.
 const SCENE_BASE = (CFG.sceneBase || './').replace(/\/?$/, '/');
 const LIB_OFFICE = SCENE_BASE + 'scenes/001_open_office/', LIB_MEET = SCENE_BASE + 'scenes/002_meeting_room/', LIB_PANTRY = SCENE_BASE + 'scenes/004_pantry/';
-const USE_ZH = { coffee: '泡咖啡', microwave: '微波便當', fridge: '開冰箱', vending: '買飲料', sink: '洗杯子', water: '倒水' };
+const LIB_LOUNGE = SCENE_BASE + 'scenes/005_lounge/';   // 休憩交誼區（2026-11-05 加入）
+const USE_ZH = { coffee: '泡咖啡', microwave: '微波便當', fridge: '開冰箱', vending: '買飲料', sink: '洗杯子', water: '倒水', tv: '轉電視' };
+const LOUNGE_ZH = { sofa: '坐沙發看電視', beanbag: '窩在懶骨頭', pool: '打撞球', foosball: '玩手足球' };
 // Devices people (and the viewer) can operate. fx = glow colour; steam = little puffs while running; done = bubble when finished.
 const DEV = {
   coffee:    { name: '咖啡機', act: '沖一杯咖啡', run: '沖煮中', fx: 0xfff1c9, steam: true, done: '咖啡好了 ☕' },
@@ -22,7 +24,8 @@ const DEV = {
   sink:      { name: '水槽',   act: '開水龍頭',   run: '流水中', fx: 0x9fd8ff, done: '洗好了' },
   water:     { name: '飲水機', act: '倒一杯熱水', run: '出水中', fx: 0xbfe6ff, steam: true, done: '水好了' },
   studio:    { name: '錄音設備', act: '開始錄音', run: '錄音中', fx: 0xff5a4f, done: '錄好了' },
-  booth:     { name: '電話亭',   act: '開始視訊', run: '通話中', fx: 0x7fd1ff, done: '通話結束' }
+  booth:     { name: '電話亭',   act: '開始視訊', run: '通話中', fx: 0x7fd1ff, done: '通話結束' },
+  tv:        { name: '電視',     act: '打開電視', run: '播放中', fx: 0x9fb8ff, done: '關電視' }
 };
 const RUN_SEC = 8;
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -95,7 +98,7 @@ async function loadGlb(url) {   // binary .glb from the scene repo
 }
 
 // ---------- floor state ----------
-let lib = null, meetMeta = null, pantryMeta = null;   // loaded assets
+let lib = null, meetMeta = null, pantryMeta = null, loungeMeta = null;   // loaded assets
 let lastMeetings = [], lastProjects = [], projSig = '';
 let meetAssign = new Map();   // meeting_id -> room (B+ or a small meeting room)
 let floor = null;                                   // current built floor
@@ -244,8 +247,15 @@ function buildLibRoom(room, src, navSrc, meta, signText) {
   return { A, door: { id: room.id + ':door', type: 'STAND', position: [d0.position[0] + room.x0, room.y0 - .8, 0], yaw_deg: 0 } };
 }
 function buildMeeting(room) {
-  const { A, door } = buildLibRoom(room, lib.meetScene, lib.meetNav, meetMeta, 'B+ 會議／試播室');
+  const { A, door } = buildLibRoom(room, lib.meetScene, lib.meetNav, meetMeta, 'B+ 大會議室（15 人）');
   room.anchors = { seats: A.filter(a => /SEAT_meeting/.test(a.id)), stands: A.filter(a => /STAND_/.test(a.id)), water: A.filter(a => /POI_water/.test(a.id)), door };
+  // 002 has 12 seats; the big room seats 15, so add a back row of 3 chairs behind the south side of the table (老師 2026-11-05)
+  const ch = room.group.getObjectByName('Chair_01');
+  if (ch) for (const [i, x] of [4.0, 5.0, 6.0].entries()) {
+    const c = ch.clone(true); c.position.set(x, 0, -.95); room.group.add(c);
+    room.anchors.seats.push({ id: room.id + ':SEAT_back_' + (i + 1), type: 'SEAT', use: 'meeting', position: [room.x0 + x, room.y0 + .95, 0], yaw_deg: 0 });
+  }
+  room.cap = room.anchors.seats.length;
   for (const a of room.anchors.water) addDevice(room, { ...a, use: 'water' }, scene, room.extra);
   // projector screen on the north side showing the current meeting
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 576;
@@ -419,6 +429,12 @@ function setOnAir(on) {
 function buildPantry(room) {
   const { A, door } = buildLibRoom(room, lib.pantryScene, lib.pantryNav, pantryMeta, '茶水間');
   room.anchors = { devices: A.filter(a => a.type === 'POI'), seats: A.filter(a => a.type === 'SEAT'), door };
+  for (const a of room.anchors.devices) addDevice(room, a, scene, room.extra);
+}
+// 休憩區（indoor-scenes 005）：沙發、懶骨頭、撞球、手足球、電視。休息的人有時來這裡坐坐或打球。
+function buildLounge(room) {
+  const { A, door } = buildLibRoom(room, lib.loungeScene, lib.loungeNav, loungeMeta, '休憩區');
+  room.anchors = { seats: A.filter(a => a.type === 'SEAT'), games: A.filter(a => a.type === 'STAND'), devices: A.filter(a => a.type === 'POI'), door };
   for (const a of room.anchors.devices) addDevice(room, a, scene, room.extra);
 }
 // A device: glow + steam effects, a small name tag and an invisible hit box, so it can be clicked and operated.
@@ -680,18 +696,24 @@ function buildTableRoom(room, opt) {
   const scr = panel(opt.seats ? 2.2 : 1.8, opt.seats ? 1.24 : 1.0, 768, 432, 0x222a33);
   scr.mesh.position.set(dx, 1.5, -(south ? y0 + d - .12 : y0 + .12)); if (!south) scr.mesh.rotation.y = Math.PI;
   scr.mesh.userData.screen = room.kind; scr.mesh.userData.roomId = room.id; g.add(scr.mesh);
-  room.screen = scr; room.sig = '';
+  room.screen = scr; room.sig = ''; room.cap = n;
   room.anchors = { seats, door: { id: room.id + ':door', type: 'STAND', position: [dx, south ? y0 - .8 : y0 + d + .8, 0], yaw_deg: 0 } };
   room.group = g; scene.add(g);
 }
-// Which room a meeting is held in: the biggest open meeting gets B+, the next two the small rooms, the rest share B+.
+// Which room a meeting is held in: biggest meetings first, each takes the smallest free room that seats everyone
+// (B+ 15 人、中會議室 8 人、小會議室 6 人); if none fits it takes the biggest free room; with no room left it shares B+.
 function assignMeetRooms() {
   meetAssign = new Map(); if (!floor) return;
   const rooms = [floor.meeting, ...(floor.smallMeets || [])];
   const size = q => (q.agenda && q.agenda.attendees || []).length;
   const open = lastMeetings.filter(q => q.open).sort((a, b) => size(b) - size(a) || b.lastTs - a.lastTs || (a.id < b.id ? -1 : 1));
   for (const r of rooms) r.meetingId = null;
-  open.slice(0, rooms.length).forEach((q, i) => { meetAssign.set(q.id, rooms[i]); rooms[i].meetingId = q.id; });
+  const free = [...rooms].sort((a, b) => (a.cap || 0) - (b.cap || 0));
+  for (const q of open) {
+    if (!free.length) break;
+    const r = free.find(r => (r.cap || 0) >= size(q)) || free[free.length - 1];
+    free.splice(free.indexOf(r), 1); meetAssign.set(q.id, r); r.meetingId = q.id;
+  }
 }
 const meetRoomOf = id => (id && meetAssign.get(id)) || floor.meeting;
 const meetKeyOf = g => g.meetMsg ? meetRoomOf(g.meetMsg.meeting_id).id : '';
@@ -753,28 +775,30 @@ function buildFloor(teams, needShared, projects = []) {
   }
   for (const pj of projects) { rooms.push({ id: 'proj:' + pj.id, kind: 'project', pid: pj.id, label: pj.title, x0: x, y0: 0, w: 7, d: D }); x += 7 + GAP; }   // 進行中的專案各一間
   const southW = Math.max(x - GAP, 8);
-  const north = [{ id: 'meet', kind: 'meeting', w: 8, d: 6 }, { id: 'meet2', kind: 'smallmeet', label: '會議室 2', w: 5.5, d: 6 }, { id: 'meet3', kind: 'smallmeet', label: '會議室 3', w: 5.5, d: 6 },
-    { id: 'pantry', kind: 'pantry', w: 8, d: 6 }, { id: 'studio', kind: 'studio', w: 6, d: 6 }];
+  // 北側：B+ 大會議室 15 人、中會議室 8 人、小會議室 6 人、茶水間、休憩區（005，10×8 m）、錄課棚
+  const north = [{ id: 'meet', kind: 'meeting', w: 8, d: 6 }, { id: 'meet2', kind: 'smallmeet', label: '中會議室', seats: 8, w: 6.5, d: 6 }, { id: 'meet3', kind: 'smallmeet', label: '小會議室', seats: 6, w: 5.5, d: 6 },
+    { id: 'pantry', kind: 'pantry', w: 8, d: 6 }, ...(lib.loungeScene ? [{ id: 'lounge', kind: 'lounge', w: 10, d: 8 }] : []), { id: 'studio', kind: 'studio', w: 6, d: 6 }];
   if (needShared) north.push({ id: 'office:__shared', kind: 'office', team: '__shared', label: '共用座位', color: css('--muted') || '#566676', pods: Math.max(1, Math.ceil((needShared + 1) / 4)), d: D, doorSide: 'S' });
   for (const r of north) if (r.kind === 'office') r.w = Math.max(7, 2.2 + r.pods * 3.4 + 1.4);
   const northW = north.reduce((s, r) => s + r.w, 0) + GAP * (north.length - 1);
   const W = Math.max(southW, northW); let nx = (W - northW) / 2;
   for (const r of north) { r.x0 = nx; r.y0 = D + CORR; nx += r.w + GAP; rooms.push(r); }
-  floor = { rooms, W, D: D + CORR + 7, extra: [], screens: new Map(), devices: new Map() };
+  floor = { rooms, W, D: D + CORR + Math.max(7, ...north.map(r => r.d)), extra: [], screens: new Map(), devices: new Map() };
   // base floor + corridor
   const base = new THREE.Group();
   floorPlane(base, -1, -1, W + 1, floor.D + 1, new THREE.Color(css('--office-bg') || '#d6e0e7').offsetHSL(0, 0, -.06));
   floorPlane(base, 0, D, W, D + CORR, 0xc9d2d9, 1, .001);
   scene.add(base); floor.extra.push(base);
   navRect(.3, D + .3, W - .3, D + CORR - .3);
-  for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : r.kind === 'studio' ? buildStudio(r)
-    : r.kind === 'smallmeet' ? buildTableRoom(r, { door: 'S', color: 0xb88a3e, sign: r.label, signColor: '#a0701f' })
+  for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : r.kind === 'studio' ? buildStudio(r) : r.kind === 'lounge' ? buildLounge(r)
+    : r.kind === 'smallmeet' ? buildTableRoom(r, { door: 'S', color: 0xb88a3e, sign: `${r.label}（${r.seats} 人）`, signColor: '#a0701f', seats: r.seats })
     : r.kind === 'project' ? buildTableRoom(r, { door: 'N', color: 0x5b6fd6, sign: '專案：' + r.label, signColor: '#4a5bc0', seats: 8 }) : buildOffice(r);
   // corridor waypoints for patrols
   floor.booths = [buildBooth(floor, .25, D, CORR, 1), buildBooth(floor, W - 1.45, D, CORR, -1)];
   floor.corridor = [0.15, 0.4, 0.65, 0.9].map((f, i) => ({ id: 'corr' + i, type: 'STAND', position: [W * f, D + CORR / 2, 0], yaw_deg: 0 }));
   floor.byTeam = new Map(rooms.filter(r => r.kind === 'office').map(r => [r.team, r]));
   floor.meeting = rooms.find(r => r.kind === 'meeting'); floor.pantry = rooms.find(r => r.kind === 'pantry'); floor.studio = rooms.find(r => r.kind === 'studio');
+  floor.lounge = rooms.find(r => r.kind === 'lounge');
   floor.smallMeets = rooms.filter(r => r.kind === 'smallmeet'); floor.byProject = new Map(rooms.filter(r => r.kind === 'project').map(r => [r.pid, r]));
   drawProjector(); fit();
 }
@@ -954,6 +978,11 @@ function targetFor(ag) {
       const pt = floor.pantry && floor.pantry.anchors;
       if (!pt) return jitter(home.anchors.water[0], k, .6);
       if (ag.restPhase === 'desk') {
+        const lg = floor.lounge && floor.lounge.anchors;
+        if (lg && Math.random() < .4) {   // 四成去休憩區：坐沙發、懶骨頭，或打撞球、手足球
+          const spot = claim(k, [...lg.seats, ...lg.games].sort(() => Math.random() - .5));
+          if (spot) { ag.restPhase = spot.type === 'SEAT' ? 'lounge' : 'game'; ag.activity = LOUNGE_ZH[spot.use] || '在休憩區休息'; return spot; }
+        }
         const pick = [...pt.devices].sort(() => Math.random() - .5);
         const d = claim(k, pick) || jitter(pick[0], k, .5);
         ag.restPhase = 'device'; ag.device = d; ag.activity = USE_ZH[d.use] || '使用設備'; return d;
@@ -963,7 +992,7 @@ function targetFor(ag) {
         ag.activity = prev === 'microwave' ? '吃便當' : prev === 'vending' || prev === 'fridge' ? '喝飲料' : '喝咖啡';
         const s = Math.random() < .3 && claim(k, [...pt.seats].sort(() => Math.random() - .5));
         if (s) { ag.restPhase = 'chat'; ag.activity += '聊天'; return s; }
-      } else ag.activity = '';   // just started resting: stay at the desk first, so not everyone heads to the pantry at once
+      } else if (ag.restPhase !== 'lounge' && ag.restPhase !== 'game') ag.activity = '';   // just started resting: stay at the desk first, so not everyone heads to the pantry at once
       ag.restPhase = 'desk'; return deskFor(ag);
     }
     default: { const pr = ag.mode === 'work' && projRoomOf(ag.group); return pr ? claim(k, pr.anchors.seats) || jitter(pr.anchors.door, k, .8) : deskFor(ag); }
@@ -977,12 +1006,13 @@ function arrive(ag, a) {
   ag.seated = a.type === 'SEAT' && !a.shared;
   const p = B2T(a.position); ag.p.g.position.x = p.x; ag.p.g.position.z = p.z;
   if (ag.ov) { const s = ag.ov.steps[ag.ov.i]; ag.wait = s.hold; if (s.say) say(ag, s.say, Math.min(s.hold, 4)); return; }
-  ag.wait = ag.mode === 'patrol' ? 2.5 + Math.random() * 2 : ag.mode === 'rest' ? (ag.restPhase === 'device' ? 6 + Math.random() * 3 : ag.restPhase === 'chat' ? 20 + Math.random() * 15 : 40 + Math.random() * 110) : Infinity;
+  ag.wait = ag.mode === 'patrol' ? 2.5 + Math.random() * 2 : ag.mode === 'rest' ? (ag.restPhase === 'device' ? 6 + Math.random() * 3 : ag.restPhase === 'chat' ? 20 + Math.random() * 15
+    : ag.restPhase === 'lounge' || ag.restPhase === 'game' ? 25 + Math.random() * 25 : 40 + Math.random() * 110) : Infinity;
 }
 
 // ---------- viewer-driven actions (local only: nothing is written to Drive) ----------
 const ACTIONS = [
-  ['wave', '打招呼'], ['stretch', '伸懶腰'], ['pantry', '去茶水間'], ['meet', '去會議室'],
+  ['wave', '打招呼'], ['stretch', '伸懶腰'], ['pantry', '去茶水間'], ['lounge', '去休憩區'], ['meet', '去會議室'],
   ['board', '到白板前'], ['studio', '去錄課棚'], ['call', '進電話亭'], ['stand', '站著工作'], ['patrol', '巡一圈'], ['desk', '回座位工作']
 ];
 const ACT_NAME = Object.fromEntries(ACTIONS);
@@ -1013,6 +1043,9 @@ function planFor(ag, kind, dev) {
       if (pt) steps.push({ to: claim(k, [...pt.seats].sort(() => Math.random() - .5)) || jitter(pt.door, k, .8), anim: 'sip', hold: 16, say: '休息一下' });
       return steps;
     }
+    case 'lounge': { const lg = floor.lounge && floor.lounge.anchors; if (!lg) return [];
+      const spot = claim(k, [...lg.seats, ...lg.games].sort(() => Math.random() - .5)) || jitter(lg.door, k, .8);
+      return [{ to: spot, anim: spot.type === 'SEAT' ? 'relax' : 'use', hold: 20, say: LOUNGE_ZH[spot.use] || '休息一下' }]; }
     case 'meet': return [{ to: claim(k, meet.seats) || jitter(meet.door, k, .8), anim: 'meet', hold: 25, say: '來開會' }];
     case 'board': return [{ to: claim(k, home.anchors.board) || jitter(home.anchors.board[0], k, .5), anim: 'present', hold: 15, say: '我來說明一下' }];
     case 'patrol': return [home.anchors.water[0], home.anchors.door, ...floor.corridor, home.anchors.door]
@@ -1126,7 +1159,7 @@ function renderLegend() {
   legend.append(lt);
   if (floor) { const teamRooms = floor.rooms.filter(r => r.kind === 'office' && r.team !== '__shared').length, shared = floor.byTeam.has('__shared');
     const projRooms = floor.byProject ? floor.byProject.size : 0;
-    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室${projRooms ? ` · ${projRooms} 個專案` : ''} · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''}${projRooms ? ` ＋ ${projRooms} 間專案辦公室` : ''} ＋ 3 間會議室 ＋ 茶水間 ＋ 錄課棚 ＋ 電話亭 · ${agents.size} 位代理人`; }
+    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室${projRooms ? ` · ${projRooms} 個專案` : ''} · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''}${projRooms ? ` ＋ ${projRooms} 間專案辦公室` : ''} ＋ 3 間會議室（15／8／6 人） ＋ 茶水間${floor.lounge ? ' ＋ 休憩區' : ''} ＋ 錄課棚 ＋ 電話亭 · ${agents.size} 位代理人`; }
 }
 
 // ---------- animation ----------
@@ -1159,12 +1192,13 @@ function animate(ag, dt, t) {
   p.g.position.y = ag.seated ? -.04 : 0;
   p.hips.rotation.x = ag.seated ? Math.PI / 2 : 0; poseLegs(p, 0, ag.seated);
   p.head.rotation.set(0, 0, 0); p.armL.rotation.set(0, 0, 0); p.armR.rotation.set(0, 0, 0); p.torso.scale.y = 1;
-  const m = ag.ov ? ag.ov.steps[ag.ov.i].anim : ag.mode === 'rest' ? (ag.restPhase === 'device' ? 'use' : 'sip') : ag.mode;
+  const m = ag.ov ? ag.ov.steps[ag.ov.i].anim : ag.mode === 'rest' ? (ag.restPhase === 'device' || ag.restPhase === 'game' ? 'use' : ag.restPhase === 'lounge' ? 'relax' : 'sip') : ag.mode;
   p.cup.visible = m === 'sip';
   switch (m) {
     case 'wave': p.armR.rotation.x = 2.75; p.armR.rotation.z = .35 + Math.sin(t * 11 + ph) * .4; p.head.rotation.y = Math.sin(t * 2 + ph) * .15; p.head.rotation.x = -.08; break;
     case 'stretch': { const k = Math.min(1, (3 - Math.max(0, ag.wait)) * 1.6); p.armL.rotation.x = p.armR.rotation.x = 2.95 * k; p.armL.rotation.z = -.25 * k; p.armR.rotation.z = .25 * k; p.head.rotation.x = -.3 * k; p.torso.scale.y = 1 + .06 * k; break; }
     case 'use': p.armL.rotation.x = 1.2 + Math.sin(t * 6 + ph) * .15; p.armR.rotation.x = 1.35 + Math.sin(t * 6 + ph + 1) * .2; p.head.rotation.x = .15; break;
+    case 'relax': p.armL.rotation.x = p.armR.rotation.x = .35; p.armL.rotation.z = -.2; p.armR.rotation.z = .2; p.head.rotation.x = -.05; p.head.rotation.y = Math.sin(t * .4 + ph) * .25; break;
     case 'sip': p.armR.rotation.x = 1.5 + Math.max(0, Math.sin(t * .9 + ph)) * .9; p.armL.rotation.z = -.08; p.head.rotation.y = Math.sin(t * .6 + ph) * .3; break;
     case 'work': p.armL.rotation.x = 1.25 + Math.sin(t * 13 + ph) * .1; p.armR.rotation.x = 1.25 + Math.sin(t * 13 + ph + 1.7) * .1; p.head.rotation.x = .12 + Math.sin(t * 1.3 + ph) * .04; break;
     case 'meet': p.armL.rotation.x = .9; p.armR.rotation.x = .9 + Math.max(0, Math.sin(t * .8 + ph)) * .7; p.head.rotation.x = Math.max(0, Math.sin(t * 2.2 + ph)) * .18; p.head.rotation.y = Math.sin(t * .5 + ph) * .35; break;
@@ -1328,7 +1362,7 @@ function focusRoom(r) {   // the whole room, seen from the same side as the floo
   const across = portrait ? r.d : r.w, along = portrait ? r.w : r.d, { vf, hf } = fovs();
   flyTo(c, c.clone().addScaledVector(dir, Math.max((across / 2 + .9) / Math.tan(hf / 2), (along / 2 + .9) * .9 / Math.tan(vf / 2))));
 }
-const ROOM_ZH = { meeting: 'B+ 會議／試播室', pantry: '茶水間', studio: '錄課棚' };
+const ROOM_ZH = { meeting: 'B+ 大會議室（會議／試播）', pantry: '茶水間', studio: '錄課棚', lounge: '休憩區' };
 const roomName = r => ROOM_ZH[r.kind] || (r.kind === 'smallmeet' ? r.label : r.kind === 'project' ? '專案：' + r.label : r.team === '__shared' ? '共用座位' : r.label + ' 辦公室');
 const inRoom = (r, v) => v.x >= r.x0 && v.x <= r.x0 + r.w && -v.z >= r.y0 && -v.z <= r.y0 + r.d;
 const backItem = () => ({ label: '回到全景', cls: 'mut', run: () => fit(true) });
@@ -1436,6 +1470,8 @@ async function boot() {
       loadGlb(LIB_PANTRY + 'scene.glb'), loadGlb(LIB_PANTRY + 'navmesh.glb'), fetch(LIB_PANTRY + 'scene.json').then(r => r.json())]);
     lib = office.scene; lib.meetScene = meet.scene; lib.meetNav = meetNavG.scene; meetMeta = mm;
     lib.pantryScene = pan.scene; lib.pantryNav = panNav.scene; pantryMeta = pm;
+    try { const [lo, loNav, lm] = await Promise.all([loadGlb(LIB_LOUNGE + 'scene.glb'), loadGlb(LIB_LOUNGE + 'navmesh.glb'), fetch(LIB_LOUNGE + 'scene.json').then(r => r.json())]);
+      lib.loungeScene = lo.scene; lib.loungeNav = loNav.scene; loungeMeta = lm; } catch (e) { console.warn('休憩區場景載入失敗，先不顯示', e); }
     resize();
     update(lastGroups, lastOpts);
     if (window.cloudlogBridge) window.cloudlogBridge.refresh();

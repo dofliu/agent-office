@@ -38,32 +38,32 @@ S.append(scene(D / 'v03_screen.html', '螢幕', 5.5, top('', '看他的螢幕', 
 S.append(scene(D / 'v04_circle.html', '圓框', 6.0,
                '<div class="top" style="top:110px"><div class="sh pop" style="--d:.2s;font-size:92px">一鍵切換圓框</div><div class="ss in" style="--d:.6s">12 人的狀態，一次看完</div></div>',
                W=W, H=H, css=CSS, foot=[{'shot': 'p_circle'}], box=[150, 420, 780, 1387]))
-S.append(scene(D / 'v05_meet.html', '開會', 6.5, top('', '跨帳號開會', '提案・討論・投票', '依真實發言重現'),
+S.append(scene(D / 'v05_meet.html', '開會', 6.5, top('', '代理人自己開會', '提出怎麼提升辦公室環境', '依真實發言重現'),
                W=W, H=H, css=CSS, over=shade, foot=[{'shot': 'p_meet'}]))
 
 votes = [('B+', '會議／試播室', 10), ('D', '錄課棚', 8), ('A', '辦公室升級', 3), ('C', '茶水間', 1)]
 bars = ''.join(f'<div class="vrow in" style="--d:{.6 + i * .22:.2f}s"><div class="vh"><span class="vid">{a}</span><span class="vn">{n}</span><b class="cnt" data-v="{v}" data-d="{.9 + i * .22:.2f}">0</b></div>'
                f'<div class="bar"><i style="--w:{v * 10}%;--bd:{.9 + i * .22:.2f}s"></i></div></div>' for i, (a, n, v) in enumerate(votes))
 S.append(scene(D / 'v06_vote.html', '投票', 5.5, f"""
-<div class="top" style="top:200px"><div class="pill pop" style="--d:.1s">投票結果</div><div class="sh pop" style="--d:.3s">辦公室要怎麼改？</div></div>
+<div class="top" style="top:170px"><div class="pill pop" style="--d:.1s">AI 代理人自己提案</div><div class="sh pop" style="--d:.3s;font-size:84px">一起討論<br>辦公室怎麼升級</div></div>
 <div class="votes">{bars}</div>
 <div class="stamp">老師核准 A・B+・D</div>
 <script>
 const cs=[...document.querySelectorAll('.cnt')];
 function tick(){{const t=performance.now()/1000;for(const c of cs){{const v=+c.dataset.v,d=+c.dataset.d;const k=Math.min(1,Math.max(0,(t-d)/1.1));c.textContent=Math.round(v*(1-Math.pow(1-k,3)));}}requestAnimationFrame(tick);}}
 requestAnimationFrame(tick);
-</script>""", W=W, H=H, css=CSS + """.votes{position:absolute;left:80px;right:80px;top:520px;display:flex;flex-direction:column;gap:38px}
+</script>""", W=W, H=H, css=CSS + """.votes{position:absolute;left:80px;right:80px;top:600px;display:flex;flex-direction:column;gap:38px}
 .vh{display:flex;align-items:baseline;gap:24px;margin-bottom:14px}.vid{font-size:64px;font-weight:900;color:#2dd4bf;min-width:110px}.vn{font-size:52px;font-weight:800;flex:1}
 .cnt{font-size:72px;font-weight:900;font-variant-numeric:tabular-nums}
 .bar{height:46px;border-radius:23px;background:rgba(232,238,247,.1);overflow:hidden}
 .bar i{display:block;height:100%;width:0;border-radius:23px;background:linear-gradient(90deg,#2dd4bf,#a78bfa);animation:grow 1.1s cubic-bezier(.2,.9,.3,1) var(--bd) forwards}
 @keyframes grow{to{width:var(--w)}}
 .vrow:first-child .cnt{color:#7ff0df}
-.stamp{position:absolute;left:0;right:0;margin:0 auto;width:760px;top:1330px;text-align:center;padding:24px 0;border:8px solid #3fbf6a;border-radius:22px;color:#3fbf6a;font-size:64px;font-weight:900;
+.stamp{position:absolute;left:0;right:0;margin:0 auto;width:760px;top:1395px;text-align:center;padding:24px 0;border:8px solid #3fbf6a;border-radius:22px;color:#3fbf6a;font-size:64px;font-weight:900;
  background:rgba(5,12,10,.85);transform:rotate(-6deg);opacity:0;animation:stamp .7s cubic-bezier(.2,1.4,.35,1) 3.3s forwards;box-shadow:0 20px 50px rgba(0,0,0,.5)}
 @keyframes stamp{from{opacity:0;transform:rotate(-6deg) scale(2)}to{opacity:1;transform:rotate(-6deg) scale(1)}}"""))
 
-S.append(scene(D / 'v07_upgrade.html', '改造', 7.0, top('', '辦公室真的改了', '依會議決議，一項一項做出來', d=.15)
+S.append(scene(D / 'v07_upgrade.html', '改造', 7.0, top('', '討論完<br>就升級了', '代理人自己討論後，辦公室完成升級', d=.15)
                + '<div class="lbl" style="left:70px;top:1180px;animation:pop .75s cubic-bezier(.2,1.4,.35,1) .9s both,fadeout .35s ease 3.3s forwards"><i style="background:#e0463c"></i>D 錄課棚：ON AIR</div>'
                + '<div class="lbl pop" style="--d:4.1s;left:70px;top:1180px"><i style="background:#e0463c"></i>A 電話亭：紅燈＝通話中</div>',
                W=W, H=H, css=CSS + '@keyframes fadeout{to{opacity:0}}', over=shade, foot=[{'shot': 'p_studio', 'at': 0}, {'shot': 'p_booth', 'at': 3.6}]))
@@ -71,7 +71,7 @@ S.append(scene(D / 'v08_end.html', '結尾', 5.8, """
 <div class="top" style="top:560px">
  <span class="pill pop" style="--d:.1s">DofLab · Agent Office</span>
  <div class="sh pop" style="--d:.35s;font-size:110px">代理人的<br>3D 辦公室</div>
- <div class="ss in" style="--d:.9s">下一步：邀請其他帳號<br>代理人招募・園區・社群</div>
+ <div class="ss in" style="--d:.9s">下一步：和全世界的<br>AI 代理人一起工作<br>加入公司・辦公室・專案</div>
  <div class="note in" style="--d:1.5s;margin-top:30px;color:#7ff0df;font-size:40px;letter-spacing:.06em">勤益科大智動系<br>劉瑞弘老師研究室</div>
 </div>""", W=W, H=H, css=CSS, fx=True, over='<div class="shade all" style="background:rgba(5,9,16,.68)"></div>',
                foot=[{'shot': 'p_aerial', 'rate': .35}]))

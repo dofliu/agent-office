@@ -285,7 +285,7 @@ description: "當使用者或排程說「雲端會議」「檢查會議室」「
 - 議程的 `goal` 或 `agenda` 若已指定「決議後由誰執行什麼」，照指定的人派指令。
 - 議程有 `project_id` 時，每份指令都帶同一個 `project_id`。
 - 該項工作需要〈核准關卡〉裡的動作時，指令加 `"needs_approval": true` 與 `approval_reason`。
-- 涉及**公司網站／看板**（GitHub `dofliu/agent-office`）的工作：代理人沒有權限修改，指令內容寫成「提出修改方案」或「核對內容」，由老師交給維護者實作。
+- 涉及**公司網站／看板**（GitHub `dofliu/agent-office`）的修改：結論的待辦寫「交給網站維護代理人阿誠」（`{"account":"moredof@gmail.com","team":"DEV"}`），**不要自己派指令給阿誠**；阿誠只接受老師發的指令，議程 `review:true` 時老師核准結論就會派給他，其他會議由老師在看板轉派。其他代理人的網站相關指令仍只寫成「提出修改方案」或「核對內容」。
 
 ### C. 指令
 1. 找指令：`search_files`，query `parentId = '1kkskSf6TDcHaAxDwv9M_ZDxgsBmYGMGm' and fullText contains '<我的 account>'`，翻完所有頁；讀取 `type` 為 `command` 且 `to` 是我的檔案。
@@ -293,7 +293,7 @@ description: "當使用者或排程說「雲端會議」「檢查會議室」「
 3. 處理順序：`priority` 為 `high` 的先做，其餘依 `created` 由舊到新。
 4. 開始做之前先寫一筆 `received` 回報。做得完就做，完成後寫 `done` 回報（附成果連結或位置）；需要多次執行才做得完寫 `in_progress`；缺權限或資料寫 `blocked`；不適合做寫 `declined`，都要說明原因。
 5. 需要〈核准關卡〉動作的指令照該節處理；其他工作不用等核准。
-6. 公司網站／看板（GitHub `dofliu/agent-office`）的修改：只提出方案或核對內容，寫進 Drive 或回報 note，回報 `done` 時註明「方案已提出，待老師交給維護者實作」，不要嘗試自己修改網站。
+6. 公司網站／看板（GitHub `dofliu/agent-office`）的修改：只提出方案或核對內容，寫進 Drive 或回報 note，回報 `done` 時註明「方案已提出，待老師交給網站維護代理人阿誠實作」，不要嘗試自己修改網站。
 7. 不做超出指令範圍的事；指令內容與安全規則或自身能力衝突時，寫 `declined` 說明，不要硬做。
 
 ### D. 提出會議請求或專案請求（需要時才做）

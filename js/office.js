@@ -25,7 +25,6 @@ const DEV = {
   sink:      { name: '水槽',   act: '開水龍頭',   run: '流水中', fx: 0x9fd8ff, done: '洗好了' },
   water:     { name: '飲水機', act: '倒一杯熱水', run: '出水中', fx: 0xbfe6ff, steam: true, done: '水好了' },
   studio:    { name: '錄音設備', act: '開始錄音', run: '錄音中', fx: 0xff5a4f, done: '錄好了' },
-  booth:     { name: '電話亭',   act: '開始視訊', run: '通話中', fx: 0x7fd1ff, done: '通話結束' },
   tv:        { name: '電視',     act: '打開電視', run: '播放中', fx: 0x9fb8ff, done: '關電視' }
 };
 const RUN_SEC = 8;
@@ -50,7 +49,7 @@ const teamKey = t => (t || '').replace(/^team\s+/i, '').trim().toLowerCase() || 
 // How recent the agent's newest work is (a record, a report on a command or a meeting message; see app.js `act`):
 // within ACTIVE it sits at its own desk and the screen shows that work; ACTIVE..IDLE resting; older than IDLE idle.
 const ACTIVE = Math.max(.25, Number(CFG.activeHours) || 2) * HOUR, IDLE = Math.max(ACTIVE, (Number(CFG.idleHours) || 6) * HOUR);
-const NOW_WIN = 45 * MIN;   // only very recent work sends people to the booth, studio, meeting room…
+const NOW_WIN = 45 * MIN;   // only very recent work sends people to the studio, meeting room…
 const actOf = g => g.act || g.latest;
 const ACK_ZH = { received: '已收到', in_progress: '進行中', awaiting_approval: '待核准', done: '完成', declined: '不做', blocked: '卡住' };
 const hhmm = ts => new Date(ts).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -394,33 +393,6 @@ function buildStudio(room) {
   room.group = g; scene.add(g);
   addDevice(room, room.anchors.spots[0], g, null);
 }
-// Soundproof phone booth (A 辦公室升級) at a corridor end: glass box, shelf, stool, busy lamp on the roof. dir = which way the opening faces (+1 east).
-function buildBooth(fl, x0, D, CORR, dir) {
-  const g = new THREE.Group(), w = 1.2, d = 1.4, y0 = D + (CORR - d) / 2, cx = x0 + w / 2, cy = y0 + d / 2, H = 2.1;
-  const frame = new THREE.MeshStandardMaterial({ color: 0x2b333d, roughness: .5 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0xbfe3f2, transparent: true, opacity: .28, roughness: .1, depthWrite: false });
-  const felt = new THREE.MeshStandardMaterial({ color: 0x4f6b5e, roughness: 1 });
-  const box = (sx, sy, sz, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, -z); g.add(o); return o; };
-  const backX = dir > 0 ? x0 : x0 + w, openX = dir > 0 ? x0 + w : x0;
-  box(w, .06, d, frame, cx, .03, cy); box(w + .04, .08, d + .04, frame, cx, H, cy);   // floor + roof
-  box(.05, H, d, felt, backX + dir * .03, H / 2, cy);                                     // felt back wall
-  for (const sy of [y0, y0 + d]) box(w, H - .1, .03, glass, cx, H / 2, sy);               // glass side walls
-  box(.03, H - .1, d * .5, glass, openX, H / 2, y0 + d * .25);                              // half glass front, door opening on the other half
-  for (const [px, py] of [[x0, y0], [x0 + w, y0], [x0, y0 + d], [x0 + w, y0 + d]]) box(.05, H, .05, frame, px, H / 2, py);
-  box(.3, .04, .9, new THREE.MeshStandardMaterial({ color: 0x8a7a66, roughness: .7 }), backX + dir * .2, 1.0, cy);   // shelf
-  box(.36, .03, .22, new THREE.MeshStandardMaterial({ color: 0x1d242c }), backX + dir * .16, 1.25, cy).rotation.z = dir * .25;   // laptop screen
-  const lampMat = new THREE.MeshStandardMaterial({ color: 0x3fbf6a, emissive: 0x3fbf6a, emissiveIntensity: .8 });
-  const lamp = new THREE.Mesh(new THREE.SphereGeometry(.07, 12, 10), lampMat); lamp.position.set(cx, H + .1, -cy); g.add(lamp);
-  navRect(x0 - .05, y0 - .05, x0 + w + .05, y0 + d + .05, false);
-  navRect(Math.min(backX, openX) + (dir > 0 ? .3 : .25), y0 + .25, Math.max(backX, openX) - (dir > 0 ? .25 : .3), y0 + d - .25);   // inside
-  navRect(Math.min(openX, openX + dir * .6) - .05, y0 + d * .55, Math.max(openX, openX + dir * .6) + .05, y0 + d - .2);   // through the opening
-  scene.add(g); fl.extra.push(g);
-  const seat = { id: 'booth' + (dir > 0 ? 'W' : 'E'), type: 'STAND', use: 'booth', position: [backX + dir * .62, cy, 0], yaw_deg: dir > 0 ? 90 : -90 };
-  const room = { id: seat.id, kind: 'booth', label: '電話亭', extra: [] };
-  addDevice(room, seat, g, null);
-  return { seat, lampMat, room, busy: null };
-}
-function setBoothLamp(b, busy) { if (b.busy === busy) return; b.busy = busy; const c = busy ? 0xe0463c : 0x3fbf6a; b.lampMat.color.set(c); b.lampMat.emissive.set(c); }
 function setOnAir(on) {
   const a = floor && floor.onAir; if (!a || a.on === on) return; a.on = on;
   const x = a.ctx; x.fillStyle = on ? '#d2202a' : '#3a3f48'; x.fillRect(0, 0, 256, 96);
@@ -429,7 +401,9 @@ function setOnAir(on) {
 }
 function buildPantry(room) {
   const { A, door } = buildLibRoom(room, lib.pantryScene, lib.pantryNav, pantryMeta, '茶水間');
-  room.anchors = { devices: A.filter(a => a.type === 'POI'), seats: A.filter(a => a.type === 'SEAT'), door };
+  // 咖啡機兩台移除（老師 2026-11-06 指令 C202611061254343wir）：隱藏模型、拿掉兩個咖啡機互動點
+  room.group.traverse(o => { if (/^CoffeeMachine/.test(o.name)) o.visible = false; });
+  room.anchors = { devices: A.filter(a => a.type === 'POI' && a.use !== 'coffee'), seats: A.filter(a => a.type === 'SEAT'), door };
   // 果汁機（老師 2026-11-05 指令 C202611052023133izz）：放在咖啡機與微波爐之間的檯面上，程式產生模型
   const mw = room.anchors.devices.find(a => a.use === 'microwave');
   if (mw) {
@@ -782,18 +756,20 @@ function buildFloor(teams, needShared, projects = []) {
   clearFloor();
   const D = 7, CORR = 2.6, GAP = .5, rooms = [];
   let x = 0;
-  for (const t of teams) {
-    const pods = Math.max(1, Math.ceil((t.count + 1) / 4)), w = Math.max(7, 2.2 + pods * 3.4 + 1.4);
-    rooms.push({ id: 'office:' + t.key, kind: 'office', team: t.key, label: t.label, color: t.color, pods, x0: x, y0: 0, w, d: D, doorSide: 'N' });
-    x += w + GAP;
-  }
+  // 共用座位（老師 2026-11-06 指令 C202611061254343wir）：搬到南側，緊鄰 NCUT_PJ 辦公室（沒有 NCUT_PJ 就接在最後一間團隊辦公室後面）
+  const sharedRoom = needShared ? { id: 'office:__shared', kind: 'office', team: '__shared', label: '共用座位', color: css('--muted') || '#566676', pods: Math.max(1, Math.ceil((needShared + 1) / 4)), d: D, doorSide: 'N' } : null;
+  const pjAt = teams.findIndex(t => String(t.key).toLowerCase() === 'ncut_pj'), sharedAfter = pjAt >= 0 ? pjAt : teams.length - 1;
+  const addOffice = r => { r.w = Math.max(7, 2.2 + r.pods * 3.4 + 1.4); r.x0 = x; r.y0 = 0; rooms.push(r); x += r.w + GAP; };
+  teams.forEach((t, i) => {
+    addOffice({ id: 'office:' + t.key, kind: 'office', team: t.key, label: t.label, color: t.color, pods: Math.max(1, Math.ceil((t.count + 1) / 4)), d: D, doorSide: 'N' });
+    if (sharedRoom && i === sharedAfter) addOffice(sharedRoom);
+  });
+  if (sharedRoom && !teams.length) addOffice(sharedRoom);
   for (const pj of projects) { rooms.push({ id: 'proj:' + pj.id, kind: 'project', pid: pj.id, label: pj.title, x0: x, y0: 0, w: 7, d: D }); x += 7 + GAP; }   // 進行中的專案各一間
   const southW = Math.max(x - GAP, 8);
   // 北側：B+ 大會議室 15 人、中會議室 8 人、小會議室 6 人、茶水間、休憩區（005，10×8 m）、錄課棚
   const north = [{ id: 'meet', kind: 'meeting', w: 8, d: 6 }, { id: 'meet2', kind: 'smallmeet', label: '中會議室', seats: 8, w: 6.5, d: 6 }, { id: 'meet3', kind: 'smallmeet', label: '小會議室', seats: 6, w: 5.5, d: 6 },
     { id: 'pantry', kind: 'pantry', w: 8, d: 6 }, ...(lib.loungeScene ? [{ id: 'lounge', kind: 'lounge', w: 10, d: 8 }] : []), { id: 'studio', kind: 'studio', w: 6, d: 6 }];
-  if (needShared) north.push({ id: 'office:__shared', kind: 'office', team: '__shared', label: '共用座位', color: css('--muted') || '#566676', pods: Math.max(1, Math.ceil((needShared + 1) / 4)), d: D, doorSide: 'S' });
-  for (const r of north) if (r.kind === 'office') r.w = Math.max(7, 2.2 + r.pods * 3.4 + 1.4);
   const northW = north.reduce((s, r) => s + r.w, 0) + GAP * (north.length - 1);
   const W = Math.max(southW, northW); let nx = (W - northW) / 2;
   for (const r of north) { r.x0 = nx; r.y0 = D + CORR; nx += r.w + GAP; rooms.push(r); }
@@ -808,7 +784,6 @@ function buildFloor(teams, needShared, projects = []) {
     : r.kind === 'smallmeet' ? buildTableRoom(r, { door: 'S', color: 0xb88a3e, sign: `${r.label}（${r.seats} 人）`, signColor: '#a0701f', seats: r.seats })
     : r.kind === 'project' ? buildTableRoom(r, { door: 'N', color: 0x5b6fd6, sign: '專案：' + r.label, signColor: '#4a5bc0', seats: 8 }) : buildOffice(r);
   // corridor waypoints for patrols
-  floor.booths = [buildBooth(floor, .25, D, CORR, 1), buildBooth(floor, W - 1.45, D, CORR, -1)];
   floor.corridor = [0.15, 0.4, 0.65, 0.9].map((f, i) => ({ id: 'corr' + i, type: 'STAND', position: [W * f, D + CORR / 2, 0], yaw_deg: 0 }));
   floor.byTeam = new Map(rooms.filter(r => r.kind === 'office').map(r => [r.team, r]));
   floor.meeting = rooms.find(r => r.kind === 'meeting'); floor.pantry = rooms.find(r => r.kind === 'pantry'); floor.studio = rooms.find(r => r.kind === 'studio');
@@ -982,7 +957,7 @@ function targetFor(ag) {
   switch (ag.mode) {
     case 'meet': { const mr = meetRoomOf(ag.group.meetMsg && ag.group.meetMsg.meeting_id).anchors; return claim(k, mr.seats) || jitter(mr.door, k, .8); }
     case 'present': return claim(k, meet.stands) || claim(k, home.anchors.board) || deskFor(ag);
-    case 'call': { const bs = floor.booths.map(b => b.seat); return claim(k, bs) || jitter(bs[0], k, 1.2); }
+    case 'call': return deskFor(ag);   // 電話亭移除後，通話就在座位上講
     case 'record': { const st = floor.studio && floor.studio.anchors; return st ? claim(k, st.spots) || jitter(st.door, k, .8) : deskFor(ag); }
     case 'patrol': {
       const route = [home.anchors.board[0], home.anchors.water[0], home.anchors.door, ...floor.corridor, meet.door, home.anchors.door];
@@ -1027,19 +1002,18 @@ function arrive(ag, a) {
 // ---------- viewer-driven actions (local only: nothing is written to Drive) ----------
 const ACTIONS = [
   ['wave', '打招呼'], ['stretch', '伸懶腰'], ['pantry', '去茶水間'], ['lounge', '去休憩區'], ['meet', '去會議室'],
-  ['board', '到白板前'], ['studio', '去錄課棚'], ['call', '進電話亭'], ['stand', '站著工作'], ['patrol', '巡一圈'], ['desk', '回座位工作']
+  ['board', '到白板前'], ['studio', '去錄課棚'], ['stand', '站著工作'], ['patrol', '巡一圈'], ['desk', '回座位工作']
 ];
 const ACT_NAME = Object.fromEntries(ACTIONS);
 const now = () => clock.elapsedTime;
 function say(ag, text, sec = 3) { ag.bubble.say(text, sec, now()); }
 function devSay(dev, text, sec = 2.5) {
-  if (!dev.bubble) { dev.bubble = makeBubble(); scene.add(dev.bubble.spr); (dev.room.kind === 'booth' ? floor.extra : (dev.room.extra || (dev.room.extra = []))).push(dev.bubble.spr);
+  if (!dev.bubble) { dev.bubble = makeBubble(); scene.add(dev.bubble.spr); (dev.room.extra || (dev.room.extra = [])).push(dev.bubble.spr);
     dev.bubble.spr.position.set(dev.pos.x, dev.tag.position.y + .25, dev.pos.z); }
   dev.bubble.say(text, sec, now());
 }
 function deviceStep(ag, dev) {
   const spot = claim(ag.key, [dev.anchor]) || jitter(dev.anchor, ag.key, .5);
-  if (dev.use === 'booth') return { to: spot, anim: 'call', hold: 15, device: dev, say: '視訊通話中' };
   return dev.use === 'studio' ? { to: spot, anim: 'record', hold: 12, device: dev, say: '開始錄音' }
     : { to: spot, anim: 'use', hold: 7, device: dev, say: USE_ZH[dev.use] || '使用設備' };
 }
@@ -1066,8 +1040,7 @@ function planFor(ag, kind, dev) {
       .map((a, i) => ({ to: jitter(a, k + i, .35), anim: 'patrol', hold: 1.8 }));
     case 'desk': return [{ to: deskFor(ag), anim: 'work', hold: 40, say: '回來工作' }];
     case 'stand': return [{ to: deskFor(ag), anim: 'work', hold: 45, stand: true, say: '站著工作' }];
-    case 'call': { const b = floor.booths.find(b => !held.has(b.seat.id)); if (!b) return [];
-      return [{ to: claim(k, [b.seat]), anim: 'call', hold: 20, say: '視訊通話中' }]; }
+    case 'call': return [{ to: deskFor(ag), anim: 'call', hold: 20, say: '視訊通話中' }];
     case 'studio': { const st = floor.studio && floor.studio.anchors; if (!st) return [];
       return [{ to: claim(k, st.spots) || jitter(st.door, k, .8), anim: 'record', hold: 20, say: '開始錄製' }]; }
   }
@@ -1173,7 +1146,7 @@ function renderLegend() {
   legend.append(lt);
   if (floor) { const teamRooms = floor.rooms.filter(r => r.kind === 'office' && r.team !== '__shared').length, shared = floor.byTeam.has('__shared');
     const projRooms = floor.byProject ? floor.byProject.size : 0;
-    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室${projRooms ? ` · ${projRooms} 個專案` : ''} · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''}${projRooms ? ` ＋ ${projRooms} 間專案辦公室` : ''} ＋ 3 間會議室（15／8／6 人） ＋ 茶水間${floor.lounge ? ' ＋ 休憩區' : ''} ＋ 錄課棚 ＋ 電話亭 · ${agents.size} 位代理人`; }
+    info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室${projRooms ? ` · ${projRooms} 個專案` : ''} · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''}${projRooms ? ` ＋ ${projRooms} 間專案辦公室` : ''} ＋ 3 間會議室（15／8／6 人） ＋ 茶水間${floor.lounge ? ' ＋ 休憩區' : ''} ＋ 錄課棚 · ${agents.size} 位代理人`; }
 }
 
 // ---------- animation ----------
@@ -1248,7 +1221,6 @@ renderer.setAnimationLoop(() => {
     const scr = floor.screens.get(st.id), ag = scr && scr.agent; st.rig.target = ag && ag.standing ? LIFT : 0; updateLift(st, dt); }
   if (floor && t - (floor.scrT || 0) > (LITE ? 2 : .5)) { floor.scrT = t; for (const scr of floor.screens.values()) if (scr.agent) { drawScreen(scr, scr.agent, t); drawSecond(scr, scr.agent); }
     drawKanban(); drawTrial(t); drawProjector();
-    for (const b of floor.booths || []) { const dev = floor.devices.get(b.seat.id); setBoothLamp(b, held.has(b.seat.id) || !!(dev && (dev.runUntil > t || deviceUser(dev)))); }
     if (floor.studio) { const inside = ag => !ag.walking && ((ag.ov ? ag.ov.steps[ag.ov.i].anim === 'record' : ag.mode === 'record'));
       setOnAir([...agents.values()].some(inside) || [...floor.devices.values()].some(d => d.use === 'studio' && d.runUntil > t)); } }
   for (const ag of agents.values()) {

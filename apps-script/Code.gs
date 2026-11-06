@@ -35,7 +35,7 @@ function feedText_(publicOnly) {
   let body = getChunked_(cache, key);
   if (body) return body;
   let full = getChunked_(cache, 'feed');
-  if (!full) { full = JSON.stringify(feedFromIndex_(currentIndex_(cache, false))); putChunked_(cache, 'feed', full, FEED_TTL); }
+  if (!full) { full = JSON.stringify(feedFromIndex_(currentIndex_(cache))); putChunked_(cache, 'feed', full, FEED_TTL); }
   if (!publicOnly) return full;
   body = JSON.stringify(publicFeed_(JSON.parse(full)));
   putChunked_(cache, 'feedp', body, FEED_TTL);
@@ -118,12 +118,15 @@ function saveIndex_(cache, idx) {
 }
 // 補進新增或改過的檔案。full = 完整比對（也清掉已刪除、搬走或超過 FEED_DAYS 天的檔案）。
 // 時間到了（deadline）就先停，標記 partial，下次接著做。
+// 建索引用的鎖：和寫入用的 ScriptLock 分開，建索引（可能好幾分鐘）時看板照樣可以發起會議、下指令。
+const idxLock_ = () => LockService.getUserLock();
+const SCAN_ORDER = ['meetings', 'commands', 'records'];   // 會議與指令先建（檔案少、看板最需要），工作紀錄最後
 function refreshIndex_(idx, full, deadline) {
   const now = Date.now(), since = now - FEED_DAYS * 86400000, seen = {};
   const q = full || !idx.updated ? null : 'modifiedDate > "' + new Date(idx.updated - 120000).toISOString() + '"';   // 重疊 2 分鐘，避免漏檔
   let partial = false;
   scan:
-  for (const name in FOLDERS) {
+  for (const name of SCAN_ORDER) {
     const folder = DriveApp.getFolderById(FOLDERS[name]);
     const it = q ? folder.searchFiles(q + ' and trashed = false') : folder.getFiles();
     while (it.hasNext()) {
@@ -142,31 +145,36 @@ function refreshIndex_(idx, full, deadline) {
   }
   if (full && !partial) { for (const id in idx.files) if (!seen[id]) delete idx.files[id]; idx.lastFull = now; }
   for (const id in idx.files) if (idx.files[id].m < since) delete idx.files[id];
+  for (const id of trashedIds_()) delete idx.files[id];
   idx.partial = partial;
-  if (!partial) idx.updated = now;   // 沒做完就不前進，下次從同一個時間點再找
+  if (!partial) idx.updated = now;   // 記「開始掃」的時間：掃描途中新增的檔案，下次補新檔時一定找得到；沒做完就不前進
   return idx;
 }
-// 讀取時用：索引超過 FEED_TTL 秒沒更新就先補新檔（拿不到鎖就用現有的索引）。locked = 呼叫端已經拿著鎖。
-function currentIndex_(cache, locked) {
+// 讀取時用：索引超過 FEED_TTL 秒沒更新就先補新檔（最多 25 秒；第一次建索引時只幫忙做一小段，大部分交給觸發器）。
+// 拿不到建索引的鎖（觸發器正在做）就直接用現有的索引，不讓看板等。
+function currentIndex_(cache) {
   let idx = loadIndex_(cache);
   if (Date.now() - (idx.updated || 0) <= FEED_TTL * 1000 && !idx.partial) return idx;
-  const lock = locked ? null : LockService.getScriptLock();
-  if (lock && !lock.tryLock(15000)) return idx;
+  const lock = idxLock_();
+  if (!lock.tryLock(3000)) return idx;
   try {
     idx = loadIndex_(cache);
     if (Date.now() - (idx.updated || 0) > FEED_TTL * 1000 || idx.partial) {
-      const first = !idx.updated || (idx.partial && !idx.lastFull);
-      refreshIndex_(idx, first, Date.now() + (first ? 240000 : 60000));
+      refreshIndex_(idx, !idx.lastFull || idx.partial, Date.now() + 25000);
       saveIndex_(cache, idx);
     }
-  } finally { if (lock) lock.releaseLock(); }
+  } finally { lock.releaseLock(); }
   return idx;
 }
+// 移到垃圾桶的檔案：先記在快取（6 小時），索引更新與輸出時排除，下次完整比對後就不需要了
+function trashedIds_() { const t = CacheService.getScriptCache().get('trashed'); return t ? t.split(',') : []; }
+function noteTrashed_(ids) { if (!ids.length) return; const all = trashedIds_().concat(ids).slice(-500); CacheService.getScriptCache().put('trashed', all.join(','), 21600); }
 function feedFromIndex_(idx) {
   const feed = { generated: new Date(idx.updated || Date.now()).toISOString(), records: [], meetings: [], commands: [] };
+  const gone = {}; for (const id of trashedIds_()) gone[id] = 1;
   for (const id in idx.files) {
     const e = idx.files[id];
-    if (feed[e.k]) feed[e.k].push({ id: id, title: e.t, modified: new Date(e.m).toISOString(), data: e.d });
+    if (feed[e.k] && !gone[id]) feed[e.k].push({ id: id, title: e.t, modified: new Date(e.m).toISOString(), data: e.d });
   }
   return feed;
 }
@@ -184,7 +192,7 @@ function setup() {
 }
 // 每 10 分鐘：補新檔；每小時（或上次沒做完時）完整比對一次。
 function maintain() {
-  const cache = CacheService.getScriptCache(), lock = LockService.getScriptLock();
+  const cache = CacheService.getScriptCache(), lock = idxLock_();
   if (!lock.tryLock(30000)) return;
   try {
     const idx = loadIndex_(cache);
@@ -259,15 +267,20 @@ function doPost(e) {
   if (!key) return out_({ ok: false, error: 'admin_disabled' });
   if (!req || req.key !== key) { Utilities.sleep(1000); return out_({ ok: false, error: 'wrong_key' }); }
   const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  if (!lock.tryLock(30000)) return out_({ ok: false, error: 'busy', message: '系統忙碌中，請稍後再試一次' });
   try {
     const fn = ACTIONS[req.action];
     if (!fn) return out_({ ok: false, error: 'bad_request', message: 'unknown action' });
     const res = fn(req);
-    // 寫入後馬上補進索引（新檔、改 TEAM 的新檔），移到垃圾桶的從索引拿掉
-    const cache = CacheService.getScriptCache(), idx = loadIndex_(cache);
-    for (const id of [].concat(res.trashed || [])) delete idx.files[id];
-    if (idx.updated) { refreshIndex_(idx, false, Date.now() + 20000); saveIndex_(cache, idx); }
+    // 寫入後補進索引（新檔、改 TEAM 的新檔）。觸發器正在建索引時就跳過：下一次讀取或觸發器會補上，寫入本身不受影響。
+    noteTrashed_([].concat(res.trashed || []));
+    try {
+      const il = idxLock_();
+      if (il.tryLock(2000)) {
+        try { const cache = CacheService.getScriptCache(), idx = loadIndex_(cache);
+          if (idx.updated && !idx.partial) { refreshIndex_(idx, false, Date.now() + 15000); saveIndex_(cache, idx); } } finally { il.releaseLock(); }
+      }
+    } catch (e) { /* 索引更新失敗不影響寫入 */ }
     clearFeed_();
     return out_(Object.assign({ ok: true }, res));
   } catch (err) {

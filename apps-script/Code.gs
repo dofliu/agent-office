@@ -1,7 +1,8 @@
 /**
  * 雲端紀錄看板的資料來源（Google Apps Script 網頁應用程式）。
  *
- * GET  ：以部署者本人的身分讀取三個 Drive 資料夾中的 JSON 檔，合併成一份 JSON 給看板。
+ * GET  ：以部署者本人的身分讀取三個 Drive 資料夾中的 JSON 檔（最近 FEED_DAYS 天），合併成一份 JSON 給看板。
+ *        讀過的內容存在索引檔，之後只讀新增或改過的檔案；觸發器定時補新檔、每天封存舊檔（第一次部署後在編輯器執行 setup）。
  *        指令碼屬性有設 READ_KEY 時，GET 只回「公開精簡版」：沒有紀錄內容、會議發言、指令內文，email 換成雜湊碼。
  *        完整內容要用 POST {action:'read', key:READ_KEY（或 ADMIN_KEY）} 取得。沒設 READ_KEY 時 GET 回完整內容（舊行為）。
  * POST ：read 以外都是管理模式的寫入（發起會議、老師發言、下指令、核准指令、改 TEAM、移到垃圾桶），需要管理密碼。
@@ -15,9 +16,14 @@ const FOLDERS = {
   meetings: '1pnAenSepEr8SwEWr_nM6rozP-f73MJcp', // 雲端紀錄/會議室
   commands: '1kkskSf6TDcHaAxDwv9M_ZDxgsBmYGMGm'  // 雲端紀錄/指令
 };
-const MAX_DAYS = 120;      // 只回傳最近 N 天內更新過的檔案
-const FEED_TTL = 60;       // 整份回應快取秒數
-const FILE_TTL = 21600;    // 單檔內容快取秒數（6 小時，檔案更新時 key 會變）
+const FEED_DAYS = 30;      // 看板只顯示最近 N 天內更新過的檔案
+const ARCHIVE_DAYS = 45;   // 超過 N 天沒有更新、整組都結束的檔案，每天凌晨搬到「雲端紀錄/封存/年-月/」（不刪除）
+const FEED_TTL = 60;       // 整份回應快取秒數；索引超過這個秒數沒更新，下一次讀取會先補新檔
+const SYS_FOLDER = '_看板系統', INDEX_NAME = '看板索引.json', ARCHIVE_FOLDER = '封存';
+const DIR_ZH = { records: '雲端紀錄', meetings: '會議室', commands: '指令' };
+// 2026-11-06：資料夾檔案變多後，舊做法每次都逐一打開所有檔案，讀一次要 5 分鐘以上。
+// 改成「索引」：讀過的檔案內容存在 雲端紀錄/_看板系統/看板索引.json，之後只讀新增或改過的檔案；
+// 觸發器每 10 分鐘補新檔、每小時完整比對一次（清掉刪除或搬走的檔案），每天凌晨封存舊檔。安裝方式見 setup()。
 
 function doGet() {
   const locked = !!PropertiesService.getScriptProperties().getProperty('READ_KEY');
@@ -27,20 +33,12 @@ function doGet() {
 function feedText_(publicOnly) {
   const cache = CacheService.getScriptCache(), key = publicOnly ? 'feedp' : 'feed';
   let body = getChunked_(cache, key);
-  if (!body) {
-    let full = publicOnly ? getChunked_(cache, 'feed') : null;
-    let feed;
-    if (full) feed = JSON.parse(full);
-    else {
-      const since = Date.now() - MAX_DAYS * 86400000;
-      feed = { generated: new Date().toISOString() };
-      for (const name in FOLDERS) feed[name] = readFolder_(FOLDERS[name], since, cache);
-      putChunked_(cache, 'feed', JSON.stringify(feed), FEED_TTL);
-    }
-    if (publicOnly) feed = publicFeed_(feed);
-    body = JSON.stringify(feed);
-    if (publicOnly) putChunked_(cache, 'feedp', body, FEED_TTL);
-  }
+  if (body) return body;
+  let full = getChunked_(cache, 'feed');
+  if (!full) { full = JSON.stringify(feedFromIndex_(currentIndex_(cache, false))); putChunked_(cache, 'feed', full, FEED_TTL); }
+  if (!publicOnly) return full;
+  body = JSON.stringify(publicFeed_(JSON.parse(full)));
+  putChunked_(cache, 'feedp', body, FEED_TTL);
   return body;
 }
 
@@ -95,31 +93,130 @@ function publicFeed_(feed) {
   return { generated: feed.generated, public: true, records: pick(feed.records, rec, true), meetings: pick(feed.meetings, meet), commands: pick(feed.commands, cmd) };
 }
 
-function readFolder_(folderId, since, cache) {
-  const files = [], it = DriveApp.getFolderById(folderId).getFiles();
-  while (it.hasNext()) {
-    const f = it.next();
-    if (!/\.json$/i.test(f.getName()) && f.getMimeType() !== 'application/json') continue;
-    const updated = f.getLastUpdated().getTime();
-    if (updated < since) continue;
-    files.push({ f: f, key: 'f:' + f.getId() + ':' + updated });
-  }
-  const hits = files.length ? cache.getAll(files.map(x => x.key)) : {};
-  const fresh = {}, out = [];
-  for (const x of files) {
-    let data = null, raw = hits[x.key];
-    if (raw) { try { data = JSON.parse(raw); } catch (e) { data = null; } }
-    if (!data) {
-      try {
-        raw = x.f.getBlob().getDataAsString('UTF-8').replace(/^﻿/, '');
-        data = JSON.parse(raw);
-        if (raw.length < 90000) fresh[x.key] = JSON.stringify(data);
-      } catch (e) { data = null; }
+// ---------------------------------------------------------------- 索引
+// 索引格式：{ v, updated（毫秒）, lastFull, partial, files: { 檔案ID: { k: 資料夾, t: 檔名, m: 更新時間（毫秒）, d: 內容 } } }
+function getOrCreateFolder_(parent, name) { const it = parent.getFoldersByName(name); return it.hasNext() ? it.next() : parent.createFolder(name); }
+function sysFolder_() {
+  const props = PropertiesService.getScriptProperties(), id = props.getProperty('SYS_FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* 被刪掉就重建 */ } }
+  const f = getOrCreateFolder_(DriveApp.getFolderById(FOLDERS.records), SYS_FOLDER);
+  props.setProperty('SYS_FOLDER_ID', f.getId());
+  return f;
+}
+function indexFile_() { const it = sysFolder_().getFilesByName(INDEX_NAME); return it.hasNext() ? it.next() : null; }
+function loadIndex_(cache) {
+  const c = getChunked_(cache, 'idx');
+  if (c) { try { return JSON.parse(c); } catch (e) { /* 壞掉就從 Drive 讀 */ } }
+  const f = indexFile_();
+  if (f) { try { const idx = JSON.parse(f.getBlob().getDataAsString('UTF-8')); if (idx && idx.files) return idx; } catch (e) { /* 重建 */ } }
+  return { v: 1, updated: 0, lastFull: 0, partial: false, files: {} };
+}
+function saveIndex_(cache, idx) {
+  const text = JSON.stringify(idx), f = indexFile_();
+  if (f) f.setContent(text); else sysFolder_().createFile(INDEX_NAME, text, 'application/json');
+  putChunked_(cache, 'idx', text, 21600);
+}
+// 補進新增或改過的檔案。full = 完整比對（也清掉已刪除、搬走或超過 FEED_DAYS 天的檔案）。
+// 時間到了（deadline）就先停，標記 partial，下次接著做。
+function refreshIndex_(idx, full, deadline) {
+  const now = Date.now(), since = now - FEED_DAYS * 86400000, seen = {};
+  const q = full || !idx.updated ? null : 'modifiedDate > "' + new Date(idx.updated - 120000).toISOString() + '"';   // 重疊 2 分鐘，避免漏檔
+  let partial = false;
+  scan:
+  for (const name in FOLDERS) {
+    const folder = DriveApp.getFolderById(FOLDERS[name]);
+    const it = q ? folder.searchFiles(q + ' and trashed = false') : folder.getFiles();
+    while (it.hasNext()) {
+      if (Date.now() > deadline) { partial = true; break scan; }
+      const f = it.next(), id = f.getId(), title = f.getName();
+      if (!/\.json$/i.test(title) && f.getMimeType() !== 'application/json') continue;
+      if (f.isTrashed()) continue;
+      seen[id] = 1;
+      const m = f.getLastUpdated().getTime(), cur = idx.files[id];
+      if (m < since) { delete idx.files[id]; continue; }
+      if (cur && cur.m === m && cur.k === name) continue;
+      let d = null;
+      try { d = JSON.parse(f.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, '')); } catch (e) { d = null; }
+      idx.files[id] = { k: name, t: title, m: m, d: d };
     }
-    out.push({ id: x.f.getId(), title: x.f.getName(), modified: x.f.getLastUpdated().toISOString(), data: data });
   }
-  if (Object.keys(fresh).length) cache.putAll(fresh, FILE_TTL);
-  return out;
+  if (full && !partial) { for (const id in idx.files) if (!seen[id]) delete idx.files[id]; idx.lastFull = now; }
+  for (const id in idx.files) if (idx.files[id].m < since) delete idx.files[id];
+  idx.partial = partial;
+  if (!partial) idx.updated = now;   // 沒做完就不前進，下次從同一個時間點再找
+  return idx;
+}
+// 讀取時用：索引超過 FEED_TTL 秒沒更新就先補新檔（拿不到鎖就用現有的索引）。locked = 呼叫端已經拿著鎖。
+function currentIndex_(cache, locked) {
+  let idx = loadIndex_(cache);
+  if (Date.now() - (idx.updated || 0) <= FEED_TTL * 1000 && !idx.partial) return idx;
+  const lock = locked ? null : LockService.getScriptLock();
+  if (lock && !lock.tryLock(15000)) return idx;
+  try {
+    idx = loadIndex_(cache);
+    if (Date.now() - (idx.updated || 0) > FEED_TTL * 1000 || idx.partial) {
+      const first = !idx.updated || (idx.partial && !idx.lastFull);
+      refreshIndex_(idx, first, Date.now() + (first ? 240000 : 60000));
+      saveIndex_(cache, idx);
+    }
+  } finally { if (lock) lock.releaseLock(); }
+  return idx;
+}
+function feedFromIndex_(idx) {
+  const feed = { generated: new Date(idx.updated || Date.now()).toISOString(), records: [], meetings: [], commands: [] };
+  for (const id in idx.files) {
+    const e = idx.files[id];
+    if (feed[e.k]) feed[e.k].push({ id: id, title: e.t, modified: new Date(e.m).toISOString(), data: e.d });
+  }
+  return feed;
+}
+
+// ---------------------------------------------------------------- 排程（setup() 安裝）
+// 第一次（或換新版 Code.gs 後）在編輯器執行 setup：授權、安裝觸發器、建立索引。檔案很多時建索引要跑兩三輪，觸發器會接著做。
+function setup() {
+  authorize();
+  for (const t of ScriptApp.getProjectTriggers()) if (['maintain', 'archiveOld'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
+  ScriptApp.newTrigger('maintain').timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger('archiveOld').timeBased().atHour(3).everyDays(1).inTimezone(TZ).create();
+  maintain();
+  const idx = loadIndex_(CacheService.getScriptCache());
+  Logger.log('觸發器已安裝；索引目前 ' + Object.keys(idx.files).length + ' 個檔案' + (idx.partial ? '（還沒建完，10 分鐘內觸發器會接著做）' : '，已建好'));
+}
+// 每 10 分鐘：補新檔；每小時（或上次沒做完時）完整比對一次。
+function maintain() {
+  const cache = CacheService.getScriptCache(), lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return;
+  try {
+    const idx = loadIndex_(cache);
+    const full = !idx.lastFull || idx.partial || Date.now() - idx.lastFull > 3600000;
+    refreshIndex_(idx, full, Date.now() + 270000);
+    saveIndex_(cache, idx);
+    clearFeed_();
+  } finally { lock.releaseLock(); }
+}
+// 每天凌晨：同一組（同一場會議、同一條指令、同一個專案或請求；工作紀錄一筆一組）最後更新超過 ARCHIVE_DAYS 天，
+// 整組搬到「雲端紀錄/封存/年-月/<資料夾>」。只搬不刪，搬不動的（例如不是你擁有的檔案）留在原處。
+function groupKey_(title) { const m = /^(會議請求|會議|指令|專案請求|專案)_([A-Za-z0-9]+)/.exec(title); return m ? m[1] + '_' + m[2] : null; }
+function archiveOld() {
+  const cutoff = Date.now() - ARCHIVE_DAYS * 86400000, deadline = Date.now() + 270000;
+  const arch = getOrCreateFolder_(DriveApp.getFolderById(FOLDERS.records), ARCHIVE_FOLDER);
+  let moved = 0, failed = 0;
+  scan:
+  for (const name in FOLDERS) {
+    const groups = {}, it = DriveApp.getFolderById(FOLDERS[name]).getFiles();
+    while (it.hasNext()) {
+      const f = it.next(), g = groupKey_(f.getName()) || f.getId();
+      (groups[g] = groups[g] || []).push({ f: f, m: f.getLastUpdated().getTime() });
+    }
+    for (const g in groups) {
+      if (Date.now() > deadline) break scan;
+      const fs = groups[g], newest = Math.max.apply(null, fs.map(x => x.m));
+      if (newest >= cutoff) continue;
+      const dest = getOrCreateFolder_(getOrCreateFolder_(arch, Utilities.formatDate(new Date(newest), TZ, 'yyyy-MM')), DIR_ZH[name]);
+      for (const x of fs) { try { x.f.moveTo(dest); moved++; } catch (e) { failed++; } }
+    }
+  }
+  Logger.log('封存：搬了 ' + moved + ' 個檔案' + (failed ? '，' + failed + ' 個搬不動（留在原處）' : ''));
 }
 
 // CacheService 單一值上限 100 KB，整份回應拆段存放。
@@ -167,6 +264,10 @@ function doPost(e) {
     const fn = ACTIONS[req.action];
     if (!fn) return out_({ ok: false, error: 'bad_request', message: 'unknown action' });
     const res = fn(req);
+    // 寫入後馬上補進索引（新檔、改 TEAM 的新檔），移到垃圾桶的從索引拿掉
+    const cache = CacheService.getScriptCache(), idx = loadIndex_(cache);
+    for (const id of [].concat(res.trashed || [])) delete idx.files[id];
+    if (idx.updated) { refreshIndex_(idx, false, Date.now() + 20000); saveIndex_(cache, idx); }
     clearFeed_();
     return out_(Object.assign({ ok: true }, res));
   } catch (err) {

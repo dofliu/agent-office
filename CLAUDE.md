@@ -40,6 +40,7 @@
 | 2026-11-04 | 依老師意見：園區化**暫緩**（先把單一公司做穩定）；頁面名稱改為「勤益科大智動系-劉瑞弘老師研究室」；暱稱改回老師熟悉的名字；B+ 看板牆加**今日回傳工作排名**（不含每小時雲端會議的紀錄）；會議結束後 B+ 投影幕**播放會議簡報**，點投影幕可翻頁並直接核准結論。 |
 | 2026-11-05 | 依老師意見：北側加入**休憩區**（室內場景庫 005：沙發、懶骨頭、撞球、手足球、電視；休息的人約四成來這裡）；會議室改成 **B+ 大會議室 15 人**（002 的 12 席＋後排 3 席）、**中會議室 8 人**、**小會議室 6 人**，會議依人數分到坐得下的最小房間。 |
 | 2026-11-05 | 加入**網站維護代理人「阿誠」**（`moredof@gmail.com`｜`DEV`）：Claude Code 雲端排程任務，每天約 14 點讀 Drive 指令資料夾，執行老師發給他的看板修改指令，開 draft PR 並寫回報，老師合併後上線（`docs/maintainer.md`）。 |
+| 2026-11-06 | 老師反映讀取越來越慢：實測一次讀取超過 5 分鐘（約三千個檔案，舊做法每次逐一打開）。`Code.gs` 改成**索引**＋只補新檔，看板只顯示最近 30 天；加觸發器每 10 分鐘更新索引、每天凌晨把超過 45 天、整組結束的檔案**封存**到 `雲端紀錄/封存/年-月/`。老師要貼新版 `Code.gs` 與 `appsscript.json`、執行 `setup()`、部署新版本。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
 
@@ -127,7 +128,7 @@ GitHub Pages：index.html
 ## 6. Apps Script（`apps-script/Code.gs`）
 
 - **Repo 改了不會自動生效。** 老師要把整份貼到 script.google.com 的專案，再「部署 → 管理部署作業 → 編輯 → 新版本」，網址才不變。改完記得提醒老師。
-- GET：讀三個資料夾裡最近 `MAX_DAYS`（120）天的 JSON；整份回應快取 60 秒，單檔內容依「檔案 ID＋更新時間」快取 6 小時。
+- GET：回傳三個資料夾裡最近 `FEED_DAYS`（30）天的 JSON。**索引**（2026-11-06）：讀過的內容存在 `雲端紀錄/_看板系統/看板索引.json`（也放 CacheService），讀取時索引超過 60 秒沒更新就用 `searchFiles('modifiedDate > …')` 只補新檔（`refreshIndex_()`／`currentIndex_()`），整份回應快取 60 秒。觸發器 `maintain` 每 10 分鐘補新檔、每小時完整比對一次（清掉刪除或搬走的檔案）；`archiveOld` 每天 3 點把整組（同一會議、指令、專案或請求；紀錄一筆一組）最後更新超過 `ARCHIVE_DAYS`（45）天的檔案搬到 `雲端紀錄/封存/年-月/<資料夾>`，只搬不刪。觸發器由編輯器執行 `setup()` 安裝（需要 `script.scriptapp` 權限，已寫在 `appsscript.json`）。舊做法每次逐一打開所有檔案，2026-11-06 檔案約三千個時一次讀取超過 5 分鐘。
 - POST 動作：`read`（讀完整內容，讀取或管理密碼皆可，不鎖、不清快取）、`ping`、`createMeeting`（可帶 `project_id`）、`postMessage`、`createCommand`（可帶 `needs_approval`、`project_id`）、`createProject`、`setProjectStatus`、`decideProjectRequest`、`decideMinutes`（裁示結論：approved 照結論、amended 用老師修正的待辦派指令、rejected 要寫原因；主持人已派過指令或已裁示過的會拒絕）、`approveCommand`、`decideMeetingRequest`（核准時依請求建立議程，已處理過的請求會拒絕）、`trash`、`retag`。全部需要指令碼屬性 `ADMIN_KEY`，並用 LockService 串行，完成後清掉整份回應的快取。`trash` 與 `retag` 只接受三個資料夾內的檔案。
 - 權限：`apps-script/appsscript.json` 固定 `oauthScopes` 為完整 Drive 權限，老師可貼到專案的 appsscript.json。2026-11-03 曾發生讀取正常、寫入出現「你沒有呼叫 DriveApp.Folder.createFile 的權限」（授權只拿到讀取）；處理方式是在編輯器執行 `authorize()`、授權時全部勾選，再部署新版本。
 - 部署設定：執行身分「我」（moredof@gmail.com）、存取權「所有人」，所以 Apps Script 網址任何人都叫得到。
@@ -160,7 +161,7 @@ GitHub Pages：index.html
 
 - 會議節奏受排程限制（每小時一次）。要即時會議，得另做「單一主持代理人輪流扮演」的模式，目前沒做。
 - 辦公室每間依人數自動加桌組；人數很多時樓層會變寬，手機上人物會變小。
-- `MAX_DAYS` 以外的舊紀錄不會出現在看板上。
+- `FEED_DAYS`（30 天）以外的舊紀錄不會出現在看板上；超過 45 天的在 Drive「雲端紀錄/封存」。
 - 雲端紀錄裡有一筆 TEAM 誤填為 `DofPJ`（應為 NCUT_PJ），老師可在管理模式自行改正。
 - 有讀取密碼後，`js/config.js` 裡的 email 仍然公開在 repo 裡；要連這個也藏，得改成在 config 寫雜湊碼（尚未支援），見 `docs/privacy.md`。
 - 會議 `M202611030011skun` 的議程裡有一條帶 `sk=` 分享金鑰的舊 Artifact 網址，已提醒老師到 claude.ai 撤銷分享或刪除舊 Artifact。

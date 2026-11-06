@@ -24,7 +24,9 @@ const FOL = { records: new MFolder('雲端紀錄'), meetings: new MFolder('會�
 const cacheStore = new Map();
 global.CacheService = { getScriptCache: () => ({ get: k => { const v = cacheStore.get(k); return v && v.exp > clock ? v.v : null; }, getAll: ks => { const o = {}; for (const k of ks) { const v = cacheStore.get(k); if (v && v.exp > clock) o[k] = v.v; } return o; },
   put: (k, v, t) => cacheStore.set(k, { v, exp: clock + (t || 600) * 1000 }), putAll: (o, t) => { for (const k in o) cacheStore.set(k, { v: o[k], exp: clock + (t || 600) * 1000 }); }, removeAll: ks => ks.forEach(k => cacheStore.delete(k)) }) };
-global.LockService = { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {} }) };
+const held = { script: false, user: false };
+const mkLock = k => ({ tryLock: () => { if (held[k] === 'ext') return false; held[k] = true; return true; }, waitLock: () => { if (held[k] === 'ext') throw new Error('timeout'); held[k] = true; }, releaseLock: () => { if (held[k] !== 'ext') held[k] = false; } });
+global.LockService = { getScriptLock: () => mkLock('script'), getUserLock: () => mkLock('user') };
 const props = { ADMIN_KEY: 'adm', READ_KEY: 'rk' };
 global.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props[k] || null, setProperty: (k, v) => { props[k] = v; } }) };
 global.Utilities = { sleep: () => {}, DigestAlgorithm: {}, Charset: {}, computeDigest: (a, s) => [...crypto.createHash('sha256').update(s).digest()].map(b => b > 127 ? b - 256 : b),
@@ -56,7 +58,7 @@ console.log('檔案總數', total());
 // 1. 第一次讀（沒有索引）：公開精簡版
 BLOB_MS = 50; blobReads = 0; let t0 = clock;
 let pub = JSON.parse(G.doGet().text);
-const want = d => [...Object.values(FOL)].flatMap(f => f.files).filter(f => f.updated >= clock - 30 * day).length;
+const want = (at = clock) => [...Object.values(FOL)].flatMap(f => f.files).filter(f => f.updated >= at - 30 * day).length;
 ok(pub.public === true, '沒密碼時 GET 回公開精簡版');
 ok(pub.records.length + pub.meetings.length + pub.commands.length > 0, `第一次讀到 ${pub.records.length + pub.meetings.length + pub.commands.length} 個檔案（讀檔 ${blobReads} 次，模擬耗時 ${(clock - t0) / 1000}s）`);
 let idx = G.loadIndex_(CacheService.getScriptCache());
@@ -64,7 +66,7 @@ console.log('  索引 partial =', idx.partial, '筆數', Object.keys(idx.files).
 // 2. 建完索引（setup → maintain，必要時多跑幾次）
 G.setup(); for (let i = 0; i < 5 && G.loadIndex_(CacheService.getScriptCache()).partial; i++) { tick(600000); G.maintain(); }
 idx = G.loadIndex_(CacheService.getScriptCache());
-ok(!idx.partial && Object.keys(idx.files).length === want(), `索引建完：${Object.keys(idx.files).length} 個（應為最近 30 天的 ${want()} 個）`);
+ok(!idx.partial && Object.keys(idx.files).length === want(idx.updated), `索引建完：${Object.keys(idx.files).length} 個（應為最近 30 天的 ${want(idx.updated)} 個）`);
 ok(triggers.length === 2, '安裝了 maintain 與 archiveOld 兩個觸發器');
 // 3. 之後的讀取：只讀新檔
 tick(120000); blobReads = 0; t0 = clock;
@@ -80,6 +82,14 @@ const w = JSON.parse(G.doPost({ postData: { contents: JSON.stringify({ action: '
 ok(w.ok, '管理密碼下指令成功' + (w.ok ? '' : '：' + JSON.stringify(w)));
 full = JSON.parse(G.doPost({ postData: { contents: JSON.stringify({ action: 'read', key: 'adm' }) } }).text);
 ok(full.commands.some(c => c.data && c.data.title === '測試'), '新指令立刻出現在讀取結果');
+// 5b. 觸發器正在建索引（拿著建索引的鎖）時：下指令照樣成功、讀取不等
+held.user = 'ext';
+const w2 = JSON.parse(G.doPost({ postData: { contents: JSON.stringify({ action: 'createCommand', key: 'adm', to: { account: 'moredof@gmail.com', team: 'DEV' }, title: '建索引中下指令', instruction: 'x' }) } }).text);
+ok(w2.ok, '建索引期間下指令照樣成功');
+tick(120000); blobReads = 0; t0 = clock; G.doGet(); ok(clock - t0 < 5000, `建索引期間讀取不用等（模擬 ${(clock - t0) / 1000}s）`);
+held.user = false; tick(120000);
+full = JSON.parse(G.doPost({ postData: { contents: JSON.stringify({ action: 'read', key: 'adm' }) } }).text);
+ok(full.commands.some(c => c.data && c.data.title === '建索引中下指令'), '鎖放開後的下一次讀取補上那條指令');
 // 6. 移到垃圾桶：從索引消失
 const victim = full.records.find(r => r.data && r.data.topic === '新紀錄');
 const tr = JSON.parse(G.doPost({ postData: { contents: JSON.stringify({ action: 'trash', key: 'adm', ids: [victim.id] }) } }).text);

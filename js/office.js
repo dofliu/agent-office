@@ -43,6 +43,15 @@ const STATES = {
 };
 const ORDER = ['work', 'meet', 'call', 'present', 'record', 'patrol', 'rest', 'idle'];
 let showNames = true, slowHint = false;
+// ---------- 風格（主題）：js/themes.js 定義外觀，這裡只負責套用；協作功能不受影響 ----------
+const mergeTheme = (a, b) => { const o = { ...a }; for (const k in b) o[k] = b[k] && typeof b[k] === 'object' && !Array.isArray(b[k]) && a[k] && typeof a[k] === 'object' ? mergeTheme(a[k], b[k]) : b[k]; return o; };
+const THEMES = { ...(window.AGENT_OFFICE_THEMES || {}) };
+for (const k in (CFG.themes || {})) THEMES[k] = THEMES[k] ? mergeTheme(THEMES[k], CFG.themes[k]) : CFG.themes[k];   // config.js 可以加風格或只改幾個欄位
+const THEME_BASE = (window.AGENT_OFFICE_THEMES || {}).default || {};
+let themeName = 'default';
+try { const q = /[?&]theme=([\w-]+)/.exec(location.search); themeName = (q && q[1]) || localStorage.getItem('cloudlog.theme') || CFG.theme || 'default'; } catch { themeName = CFG.theme || 'default'; }
+if (!THEMES[themeName]) themeName = 'default';
+let T = mergeTheme(THEME_BASE, THEMES[themeName] || {}), U = T.ui;   // T = 目前的風格，U = 螢幕畫面的配色
 try { showNames = localStorage.getItem('cloudlog.names') !== '0'; } catch {}
 const teamKey = t => (t || '').replace(/^team\s+/i, '').trim().toLowerCase() || '—';
 
@@ -84,9 +93,25 @@ const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.maxPolarAngle = 1.32; controls.minDistance = 1.2; controls.maxDistance = 90;
 let userMoved = false, fly = null; controls.addEventListener('start', () => { userMoved = true; fly = null; });
-scene.add(new THREE.HemisphereLight(0xffffff, 0x556677, 1.15));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x556677, 1.15); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(-10, 20, 12); scene.add(sun);
-const setBg = () => { scene.background = new THREE.Color(css('--office-bg') || '#d6e0e7'); };
+const bgColor = () => T.bg || css('--office-bg') || '#d6e0e7';
+const setBg = () => { scene.background = new THREE.Color(bgColor()); };
+function applyLights() { const l = T.light; hemi.color.set(l.sky); hemi.groundColor.set(l.floor); hemi.intensity = l.ambient; sun.color.set(l.sun); sun.intensity = l.sunPower; }
+// 場景庫模型的材質是共用的：記住原色，再乘上風格的 modelTint
+function tintModels() {
+  if (!lib) return; const tint = T.modelTint ? new THREE.Color(T.modelTint) : null, seen = new Set();
+  for (const root of [lib, lib.meetScene, lib.pantryScene, lib.loungeScene]) if (root) root.traverse(o => {
+    for (const m of [].concat(o.material || [])) { if (!m.color || seen.has(m)) continue; seen.add(m);
+      if (!m.userData.baseColor) m.userData.baseColor = m.color.clone();
+      m.color.copy(m.userData.baseColor); if (tint) m.color.multiply(tint); } });
+}
+function applyTheme() { U = T.ui; applyLights(); setBg(); wallMat.color.set(T.wall); tintModels(); box.style.background = T.bg || ''; }
+function setTheme(name) {
+  if (!THEMES[name]) name = 'default';
+  themeName = name; T = mergeTheme(THEME_BASE, THEMES[name]); try { localStorage.setItem('cloudlog.theme', name); } catch {}
+  applyTheme(); layoutSig = ''; relabelAll(); renderLegend();   // 樓層重建一次，螢幕、名牌、地板都換成新風格
+}
 setBg();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { setBg(); relabelAll(); });
 new MutationObserver(() => { setBg(); relabelAll(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
@@ -168,6 +193,17 @@ function astar(sx, sz, gx, gz) {
 // ---------- building blocks ----------
 const WALL_H = 1.0, WALL_T = .12;
 const wallMat = new THREE.MeshStandardMaterial({ color: 0xe9ecef, roughness: .9 });
+applyTheme();
+const signColor = c => { const k = new THREE.Color(c); return T.sign.amount ? '#' + k.lerp(new THREE.Color(T.sign.tint), T.sign.amount).getHexString() : '#' + k.getHexString(); };
+// 房間地板外框的發光線（風格的 outline > 0 時才畫）
+function roomOutline(r, color) {
+  const wd = T.outline; if (!wd || !color) return;
+  const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: new THREE.Color(color) }), i = .16;
+  const bar = (w, d, x, y) => { const o = new THREE.Mesh(new THREE.PlaneGeometry(w, d), m); o.rotation.x = -Math.PI / 2; o.position.set(x, .035, -y); g.add(o); };
+  bar(r.w - i * 2, wd, r.x0 + r.w / 2, r.y0 + i); bar(r.w - i * 2, wd, r.x0 + r.w / 2, r.y0 + r.d - i);
+  bar(wd, r.d - i * 2, r.x0 + i, r.y0 + r.d / 2); bar(wd, r.d - i * 2, r.x0 + r.w - i, r.y0 + r.d / 2);
+  scene.add(g); floor.extra.push(g);
+}
 function prefab(names, cx, cz) {   // clone library objects into a group relative to (cx, cz) in three coords
   const g = new THREE.Group();
   for (const n of names) { const o = lib.getObjectByName(n); if (!o) continue; const c = o.clone(true); c.position.x -= cx; c.position.z -= cz; g.add(c); }
@@ -186,16 +222,16 @@ function textPlane(text, color, w, h) {
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 256; const x = cv.getContext('2d');
   let fs = 150; do { x.font = `800 ${fs}px "Noto Sans TC","PingFang TC",sans-serif`; } while (x.measureText(text).width > 980 && (fs -= 10) > 40);
   x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillStyle = color; x.fillText(text, 512, 132);
+  x.fillStyle = signColor(color); x.fillText(text, 512, 132);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: .55, depthWrite: false }));
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: T.sign.opacity, depthWrite: false }));
   m.rotation.x = -Math.PI / 2; return m;
 }
 
 // A team office: `pods` desk pods (4 seats each), whiteboard on the side wall, water + plant, door facing the corridor.
 function buildOffice(room) {
   const { x0, y0, w, d, doorSide, pods, color, label } = room, g = new THREE.Group();
-  floorPlane(g, x0, y0, x0 + w, y0 + d, color, .16, .002);
+  floorPlane(g, x0, y0, x0 + w, y0 + d, color, T.roomTint, .002);
   const sign = textPlane(label, color, Math.min(w - 1, 6), 1.4);
   sign.position.set(x0 + w / 2, .02, -(doorSide === 'N' ? y0 + .95 : y0 + d - .95)); g.add(sign);
   const dx = x0 + w / 2, dy = doorSide === 'N' ? y0 + d : y0;
@@ -239,7 +275,7 @@ function buildLibRoom(room, src, navSrc, meta, signText) {
   });
   g.position.set(room.x0, 0, -room.y0); scene.add(g); room.group = g;
   const nm = navSrc.clone(true); nm.position.set(room.x0, 0, -room.y0); navFromMesh(nm);
-  const sign = textPlane(signText, css('--muted') || '#566676', 4, 1); sign.position.set(room.x0 + room.w / 2, .02, -(room.y0 + .9)); scene.add(sign); room.extra = [sign];
+  const sign = textPlane(signText, css('--muted') || U.mute, 4, 1); sign.position.set(room.x0 + room.w / 2, .02, -(room.y0 + .9)); scene.add(sign); room.extra = [sign];
   const A = meta.anchors.map(a => ({ ...a, id: room.id + ':' + a.id, position: [a.position[0] + room.x0, a.position[1] + room.y0, 0] }));
   const south = meta.doors.filter(d => d.wall === 'S');
   for (const dr of south) { const x = dr.position[0] + room.x0, y = room.y0; navRect(x - .45, y - .7, x + .45, y + .7); }
@@ -262,16 +298,16 @@ function buildMeeting(room) {
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.03), new THREE.MeshBasicMaterial({ map: tex }));
   scr.position.set(room.x0 + 4, 1.55, -(room.y0 + 5.6)); scr.userData.projector = true;
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(3.75, 2.18, .06), new THREE.MeshStandardMaterial({ color: 0x222a33 })); frame.position.set(0, 0, -.04); scr.add(frame);
-  const leg = new THREE.Mesh(new THREE.BoxGeometry(.08, .55, .08), new THREE.MeshStandardMaterial({ color: 0x222a33 })); leg.position.set(0, -1.28, -.05); scr.add(leg);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(3.75, 2.18, .06), new THREE.MeshStandardMaterial({ color: T.frame })); frame.position.set(0, 0, -.04); scr.add(frame);
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(.08, .55, .08), new THREE.MeshStandardMaterial({ color: T.frame })); leg.position.set(0, -1.28, -.05); scr.add(leg);
   scene.add(scr); room.extra.push(scr);
   floor.projector = { mesh: scr, cv, ctx: cv.getContext('2d'), tex, meetingId: null }; projSig = '';
   // B+ upgrade (meeting M202611030011skun): kanban wall (west), 1080p 16:9 trial projection (east), rotatable portrait monitor
-  const kb = panel(2.4, 1.35, 1024, 576, 0x222a33); kb.mesh.position.set(room.x0 + .12, 1.55, -(room.y0 + 3.2)); kb.mesh.rotation.y = Math.PI / 2;
+  const kb = panel(2.4, 1.35, 1024, 576, T.frame); kb.mesh.position.set(room.x0 + .12, 1.55, -(room.y0 + 3.2)); kb.mesh.rotation.y = Math.PI / 2;
   scene.add(kb.mesh); room.extra.push(kb.mesh); floor.kanban = kb; kb.mesh.userData.screen = 'kanban';
-  const tr = panel(2.2, 1.24, 768, 432, 0x222a33); tr.mesh.position.set(room.x0 + 7.88, 1.62, -(room.y0 + 2.3)); tr.mesh.rotation.y = -Math.PI / 2;
+  const tr = panel(2.2, 1.24, 768, 432, T.frame); tr.mesh.position.set(room.x0 + 7.88, 1.62, -(room.y0 + 2.3)); tr.mesh.rotation.y = -Math.PI / 2;
   scene.add(tr.mesh); room.extra.push(tr.mesh); floor.trial = tr; tr.mesh.userData.screen = 'trial';
-  const pm = panel(.36, .64, 216, 384, 0x1d242c, .6); pm.mesh.position.set(room.x0 + 7.5, 1.22, -(room.y0 + 4.05)); pm.mesh.rotation.y = -Math.PI / 2;
+  const pm = panel(.36, .64, 216, 384, T.bezel, .6); pm.mesh.position.set(room.x0 + 7.5, 1.22, -(room.y0 + 4.05)); pm.mesh.rotation.y = -Math.PI / 2;
   scene.add(pm.mesh); room.extra.push(pm.mesh); floor.portrait = pm; pm.mesh.userData.screen = 'portrait'; drawPortrait(pm);
 }
 // A canvas screen with a bezel and a stand leg.
@@ -290,55 +326,55 @@ function drawKanban() {
   const list = [...agents.values()].sort((a, b) => ORDER.indexOf(a.mode) - ORDER.indexOf(b.mode) || nickOf(a.group).localeCompare(nickOf(b.group)));
   const rank = [...agents.values()].sort((a, b) => (b.group.todayWork || 0) - (a.group.todayWork || 0) || (b.group.todayMeet || 0) - (a.group.todayMeet || 0) || nickOf(a.group).localeCompare(nickOf(b.group)));
   const sig = JSON.stringify([list.map(a => [nickOf(a.group), a.mode, a.group.pending || 0, colorOf(a.group)]), rank.map(a => [a.key, a.group.todayWork || 0, a.group.todayMeet || 0])]); if (sig === kb.sig) return; kb.sig = sig;
-  const x = kb.ctx; x.fillStyle = '#0f1a24'; x.fillRect(0, 0, 1024, 576); x.textBaseline = 'middle';
-  x.fillStyle = '#e3ecf3'; x.font = `800 34px ${F}`; x.fillText('看板牆 · 代理人狀態', 36, 42);
+  const x = kb.ctx; x.fillStyle = U.dBg; x.fillRect(0, 0, 1024, 576); x.textBaseline = 'middle';
+  x.fillStyle = U.dInk; x.font = `800 34px ${F}`; x.fillText('看板牆 · 代理人狀態', 36, 42);
   const cnt = {}; for (const a of list) cnt[a.mode] = (cnt[a.mode] || 0) + 1;
   x.font = `500 19px ${F}`; let cx = 400;
-  for (const k of ORDER) if (cnt[k]) { const s = `${STATES[k].label} ${cnt[k]}`; x.fillStyle = css(STATES[k].tok) || '#ccc'; x.beginPath(); x.arc(cx, 44, 7, 0, 7); x.fill(); x.fillStyle = '#b9c7d3'; x.fillText(s, cx + 12, 44); cx += x.measureText(s).width + 30; }
-  x.fillStyle = '#253647'; x.fillRect(36, 76, 952, 2);
+  for (const k of ORDER) if (cnt[k]) { const s = `${STATES[k].label} ${cnt[k]}`; x.fillStyle = css(STATES[k].tok) || '#ccc'; x.beginPath(); x.arc(cx, 44, 7, 0, 7); x.fill(); x.fillStyle = U.dInk2; x.fillText(s, cx + 12, 44); cx += x.measureText(s).width + 30; }
+  x.fillStyle = U.dLine; x.fillRect(36, 76, 952, 2);
   // left: everyone's state (one column)
   const LW = 520, n = list.length || 1, rh = Math.min(36, 410 / n), fs = Math.round(Math.min(20, rh * .5));
   list.forEach((a, i) => { const bx = 36, by = 92 + i * rh, h = rh - 6, my = by + h / 2;
-    x.fillStyle = '#15222f'; x.beginPath(); x.roundRect(bx, by, LW, h, 8); x.fill();
+    x.fillStyle = U.dCard; x.beginPath(); x.roundRect(bx, by, LW, h, 8); x.fill();
     x.fillStyle = colorOf(a.group); x.fillRect(bx, by, 6, h);
     x.fillStyle = css(STATES[a.mode].tok) || '#ccc'; x.beginPath(); x.arc(bx + 26, my, Math.min(8, h / 3), 0, 7); x.fill();
-    x.fillStyle = '#e3ecf3'; x.font = `700 ${fs}px ${F}`; x.fillText(nickOf(a.group), bx + 44, my);
-    x.fillStyle = '#8ea1b2'; x.font = `500 ${Math.round(fs * .82)}px ${F}`; x.textAlign = 'right';
+    x.fillStyle = U.dInk; x.font = `700 ${fs}px ${F}`; x.fillText(nickOf(a.group), bx + 44, my);
+    x.fillStyle = U.dMute; x.font = `500 ${Math.round(fs * .82)}px ${F}`; x.textAlign = 'right';
     x.fillText(STATES[a.mode].label + (a.group.pending ? ` · 待辦 ${a.group.pending}` : '') + ' · ' + (a.group.team ? a.group.team.label : ''), bx + LW - 14, my); x.textAlign = 'left'; });
   // right: today's ranking of work returned (cloud-meeting work counted separately)
   const RX = 580, RW = 408;
-  x.fillStyle = '#15222f'; x.beginPath(); x.roundRect(RX, 92, RW, 420, 12); x.fill();
-  x.fillStyle = '#ffcf5a'; x.font = `800 24px ${F}`; x.fillText('今日回傳工作排名', RX + 18, 118);
-  x.fillStyle = '#8ea1b2'; x.font = `500 14px ${F}`; x.fillText('不含每小時雲端會議（發言、結論、指令回報）', RX + 18, 146);
+  x.fillStyle = U.dCard; x.beginPath(); x.roundRect(RX, 92, RW, 420, 12); x.fill();
+  x.fillStyle = U.gold; x.font = `800 24px ${F}`; x.fillText('今日回傳工作排名', RX + 18, 118);
+  x.fillStyle = U.dMute; x.font = `500 14px ${F}`; x.fillText('不含每小時雲端會議（發言、結論、指令回報）', RX + 18, 146);
   const max = Math.max(1, ...rank.map(a => a.group.todayWork || 0)), rr = Math.min(28, 330 / n);
   rank.forEach((a, i) => { const y = 170 + i * rr + rr / 2, w = a.group.todayWork || 0, mt = a.group.todayMeet || 0, f2 = Math.round(Math.min(17, rr * .55));
-    x.fillStyle = i < 3 && w ? ['#ffcf5a', '#d9e2ea', '#e0a36a'][i] : '#6f8496'; x.font = `800 ${f2}px ${F}`; x.textAlign = 'right'; x.fillText(String(i + 1), RX + 40, y); x.textAlign = 'left';
-    x.fillStyle = '#e3ecf3'; x.font = `700 ${f2}px ${F}`; x.fillText(nickOf(a.group), RX + 52, y);
+    x.fillStyle = i < 3 && w ? [U.gold, '#d9e2ea', '#e0a36a'][i] : U.dMute2; x.font = `800 ${f2}px ${F}`; x.textAlign = 'right'; x.fillText(String(i + 1), RX + 40, y); x.textAlign = 'left';
+    x.fillStyle = U.dInk; x.font = `700 ${f2}px ${F}`; x.fillText(nickOf(a.group), RX + 52, y);
     const bx = RX + 132, bw = 190;
-    x.fillStyle = '#22364a'; x.fillRect(bx, y - rr * .2, bw, rr * .4);
+    x.fillStyle = U.dTrack; x.fillRect(bx, y - rr * .2, bw, rr * .4);
     if (w) { x.fillStyle = colorOf(a.group); x.fillRect(bx, y - rr * .2, bw * w / max, rr * .4); }
-    x.fillStyle = w ? '#e3ecf3' : '#6f8496'; x.font = `800 ${f2}px ${F}`; x.textAlign = 'right'; x.fillText(String(w), RX + RW - 50, y);
-    x.fillStyle = '#6f8496'; x.font = `500 ${Math.round(f2 * .78)}px ${F}`; x.fillText(mt ? `會${mt}` : '', RX + RW - 12, y); x.textAlign = 'left'; });
+    x.fillStyle = w ? U.dInk : U.dMute2; x.font = `800 ${f2}px ${F}`; x.textAlign = 'right'; x.fillText(String(w), RX + RW - 50, y);
+    x.fillStyle = U.dMute2; x.font = `500 ${Math.round(f2 * .78)}px ${F}`; x.fillText(mt ? `會${mt}` : '', RX + RW - 12, y); x.textAlign = 'left'; });
   kb.tex.needsUpdate = true;
 }
 function drawTrial(t) {   // 1080p 16:9 trial projection: a looping slide with a turbine and a timeline scrubber
   const tr = floor && floor.trial; if (!tr) return;
   const x = tr.ctx, W = 768, H = 432, f = (t * .06) % 1;
-  const grd = x.createLinearGradient(0, 0, 0, H); grd.addColorStop(0, '#173d55'); grd.addColorStop(1, '#3f86a6'); x.fillStyle = grd; x.fillRect(0, 0, W, H);
-  x.textBaseline = 'middle'; x.fillStyle = '#ffffff'; x.font = `800 30px ${F}`; x.fillText('試播 · 1920×1080 · 16:9', 28, 40);
+  const grd = x.createLinearGradient(0, 0, 0, H); grd.addColorStop(0, U.brandDark); grd.addColorStop(1, U.brand); x.fillStyle = grd; x.fillRect(0, 0, W, H);
+  x.textBaseline = 'middle'; x.fillStyle = U.onBrand; x.font = `800 30px ${F}`; x.fillText('試播 · 1920×1080 · 16:9', 28, 40);
   x.fillStyle = 'rgba(255,255,255,.75)'; x.font = `500 18px ${F}`; x.fillText('簡報／動畫實測與 QA 截圖比對', 28, 76);
   const cx = 560, cy = 190; x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineWidth = 6; x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx, 372); x.stroke();
-  x.fillStyle = '#ffffff'; for (let k = 0; k < 3; k++) { x.save(); x.translate(cx, cy); x.rotate(t * 1.4 + k * 2.094); x.beginPath(); x.moveTo(-5, 0); x.quadraticCurveTo(-10, -50, 0, -104); x.quadraticCurveTo(10, -50, 5, 0); x.fill(); x.restore(); }
+  x.fillStyle = U.onBrand; for (let k = 0; k < 3; k++) { x.save(); x.translate(cx, cy); x.rotate(t * 1.4 + k * 2.094); x.beginPath(); x.moveTo(-5, 0); x.quadraticCurveTo(-10, -50, 0, -104); x.quadraticCurveTo(10, -50, 5, 0); x.fill(); x.restore(); }
   x.beginPath(); x.arc(cx, cy, 8, 0, 7); x.fill();
   for (let i = 0; i < 4; i++) { x.fillStyle = 'rgba(255,255,255,' + (i / 4 < f ? .9 : .35) + ')'; x.fillRect(28, 130 + i * 44, 300 - i * 40, 16); }
   x.fillStyle = 'rgba(0,0,0,.35)'; x.fillRect(0, H - 40, W, 40); x.fillStyle = 'rgba(255,255,255,.35)'; x.fillRect(28, H - 22, W - 56, 4);
-  x.fillStyle = '#ffcf5a'; x.fillRect(28, H - 22, (W - 56) * f, 4); x.beginPath(); x.arc(28 + (W - 56) * f, H - 20, 8, 0, 7); x.fill();
+  x.fillStyle = U.gold; x.fillRect(28, H - 22, (W - 56) * f, 4); x.beginPath(); x.arc(28 + (W - 56) * f, H - 20, 8, 0, 7); x.fill();
   tr.tex.needsUpdate = true;
 }
 function drawPortrait(pm) {   // rotatable portrait monitor: exam sheet vs. answer key side by side
-  const x = pm.ctx; x.fillStyle = '#f7f9fb'; x.fillRect(0, 0, 216, 384); x.fillStyle = '#14202b'; x.font = `700 20px ${F}`; x.textBaseline = 'middle';
-  x.fillText('題卷 ↔ 解答', 14, 26); x.fillStyle = '#d5dce3'; x.fillRect(14, 46, 188, 2);
-  for (let i = 0; i < 9; i++) { x.fillStyle = '#9aa8b5'; x.fillRect(14, 64 + i * 34, 120 + (i * 37) % 60, 10); x.fillStyle = i % 3 === 2 ? '#c0392b' : '#2c8547'; x.fillRect(184, 62 + i * 34, 14, 14); }
+  const x = pm.ctx; x.fillStyle = U.paper; x.fillRect(0, 0, 216, 384); x.fillStyle = U.ink; x.font = `700 20px ${F}`; x.textBaseline = 'middle';
+  x.fillText('題卷 ↔ 解答', 14, 26); x.fillStyle = U.line; x.fillRect(14, 46, 188, 2);
+  for (let i = 0; i < 9; i++) { x.fillStyle = U.mute2; x.fillRect(14, 64 + i * 34, 120 + (i * 37) % 60, 10); x.fillStyle = i % 3 === 2 ? U.bad : U.ok; x.fillRect(184, 62 + i * 34, 14, 14); }
   pm.tex.needsUpdate = true;
 }
 
@@ -352,7 +388,7 @@ function buildStudio(room) {
   wall(g, x0, y0, x0, y0 + d); wall(g, x0 + w, y0, x0 + w, y0 + d); wall(g, x0, y0 + d, x0 + w, y0 + d);
   wall(g, x0, y0, dx - .6, y0); wall(g, dx + .6, y0, x0 + w, y0);
   navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3); navRect(dx - .45, y0 - .6, dx + .45, y0 + .6);
-  const sign = textPlane('錄課棚', '#c0392b', 3.2, .8); sign.position.set(x0 + w / 2, .02, -(y0 + .8)); g.add(sign);
+  const sign = textPlane('錄課棚', T.rooms.studio, 3.2, .8); sign.position.set(x0 + w / 2, .02, -(y0 + .8)); g.add(sign);
   // acoustic foam on the inside of the north and west walls
   const foam = M(0x2a2f3a, 1);
   for (let i = 0; i < 9; i++) box(.5, .8, .06, foam, x0 + .45 + i * .6, .5, -(y0 + d - .1));
@@ -446,9 +482,9 @@ function addDevice(room, a, parent, extra) {
 function makeTag(text) {   // small world-space pill above a device
   const cv = document.createElement('canvas'); cv.width = 256; cv.height = 72; const x = cv.getContext('2d');
   x.font = `700 34px ${F}`; const w = Math.min(248, x.measureText(text).width + 40), x0 = (256 - w) / 2;
-  x.fillStyle = 'rgba(255,255,255,.92)'; x.strokeStyle = 'rgba(20,32,43,.35)'; x.lineWidth = 3;
+  x.fillStyle = T.tag.bg; x.strokeStyle = T.tag.line; x.lineWidth = 3;
   x.beginPath(); x.roundRect(x0, 8, w, 54, 27); x.fill(); x.stroke();
-  x.fillStyle = '#14202b'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, 128, 36);
+  x.fillStyle = T.tag.ink; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, 128, 36);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })); sp.scale.set(1.1, .31, 1); sp.renderOrder = 5;
   return sp;
@@ -466,7 +502,7 @@ function addScreen(group, seat) {
   const yaw = seat.yaw_deg * Math.PI / 180, fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const p = B2T(seat.position).addScaledVector(fwd, 1.0), north = seat.yaw_deg === 180;
   const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));   // the seat's right-hand side
-  const bez = new THREE.MeshStandardMaterial({ color: 0x1d242c });
+  const bez = new THREE.MeshStandardMaterial({ color: T.bezel });
   const monitor = (w, h, m, dx, turn) => {   // dual monitors (A 辦公室升級): main + a smaller one angled in on the right
     const hd = new THREE.Group(); hd.position.set(p.x + side.x * dx, north ? 1.5 : 1.1, p.z + side.z * dx); hd.rotation.y = yaw + turn;
     hd.add(new THREE.Mesh(new THREE.PlaneGeometry(w, h), m));
@@ -484,15 +520,15 @@ function addScreen(group, seat) {
   (floor.screens || (floor.screens = new Map())).set(seat.id, scr);
   drawOff(scr);
 }
-function drawOff(scr) { const x = scr.ctx; x.fillStyle = '#0d1218'; x.fillRect(0, 0, 384, 216); scr.tex.needsUpdate = true; scr.sig = 'off';
-  if (scr.ctx2) { scr.ctx2.fillStyle = '#0d1218'; scr.ctx2.fillRect(0, 0, 256, 160); scr.tex2.needsUpdate = true; scr.sig2 = 'off'; } }
+function drawOff(scr) { const x = scr.ctx; x.fillStyle = U.off; x.fillRect(0, 0, 384, 216); scr.tex.needsUpdate = true; scr.sig = 'off';
+  if (scr.ctx2) { scr.ctx2.fillStyle = U.off; scr.ctx2.fillRect(0, 0, 256, 160); scr.tex2.needsUpdate = true; scr.sig2 = 'off'; } }
 function drawSecond(scr, ag) {   // right-hand monitor: the agent's latest records
   const g = ag.group, list = (g.list || []).slice(0, 4), sig = list.map(r => r.ts + r.topic).join('|'); if (sig === scr.sig2) return; scr.sig2 = sig;
-  const x = scr.ctx2; x.fillStyle = '#16232f'; x.fillRect(0, 0, 256, 160); x.textBaseline = 'middle';
-  x.fillStyle = '#8ea1b2'; x.font = `700 15px ${F}`; x.fillText('最近紀錄', 10, 14);
+  const x = scr.ctx2; x.fillStyle = U.dBg2; x.fillRect(0, 0, 256, 160); x.textBaseline = 'middle';
+  x.fillStyle = U.dMute; x.font = `700 15px ${F}`; x.fillText('最近紀錄', 10, 14);
   list.forEach((r, i) => { const y = 40 + i * 31;
-    x.fillStyle = '#5ec1d8'; x.font = `500 13px ${F}`; x.fillText(new Date(r.ts).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }), 10, y);
-    x.fillStyle = '#e3ecf3'; x.font = `500 15px ${F}`; x.fillText(wrapText(x, r.topic, 190, 1)[0] || '', 58, y); });
+    x.fillStyle = U.dAccent; x.font = `500 13px ${F}`; x.fillText(new Date(r.ts).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }), 10, y);
+    x.fillStyle = U.dInk; x.font = `500 15px ${F}`; x.fillText(wrapText(x, r.topic, 190, 1)[0] || '', 58, y); });
   scr.tex2.needsUpdate = true;
 }
 // Electric sit-stand desk: the library desk rises on two lift columns, the keyboard and monitors go with it, the chair rolls back.
@@ -500,7 +536,7 @@ const LIFT = .36;
 function addLift(group, seat, desk, kb, chair) {
   if (!desk) return;
   desk.updateWorldMatrix(true, true);
-  const bb = new THREE.Box3().setFromObject(desk), mat = new THREE.MeshStandardMaterial({ color: 0x3a424c, roughness: .4, metalness: .3 });
+  const bb = new THREE.Box3().setFromObject(desk), mat = new THREE.MeshStandardMaterial({ color: T.lift, roughness: .4, metalness: .3 });
   const cols = [bb.min.x + .12, bb.max.x - .12].map(cx => { const c = new THREE.Mesh(new THREE.BoxGeometry(.07, 1, .07), mat);
     c.position.set(cx, 0, (bb.min.z + bb.max.z) / 2); c.scale.y = .001; c.visible = false; group.add(c); return c; });
   const yaw = seat.yaw_deg * Math.PI / 180, back = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
@@ -527,30 +563,30 @@ function drawScreen(scr, ag, t) {
   if (working) {   // status screen showing the newest work, redrawn only when it changes
     const a = actOf(g), sig = ['w', a.ts, a.topic, a.content, a.status, a.stage, g.pending, color].join('|'); if (sig === scr.sig) return; scr.sig = sig;
     const kind = (a.kind === 'ack' ? '回報指令' + (ACK_ZH[a.status] ? '・' + ACK_ZH[a.status] : '') : a.kind === 'say' ? '會議發言' : '工作紀錄') + (a.stageLabel && a.kind !== 'ack' ? '・' + a.stageLabel : '');
-    x.fillStyle = '#f4f8fb'; x.fillRect(0, 0, 384, 216);
+    x.fillStyle = U.paper; x.fillRect(0, 0, 384, 216);
     x.fillStyle = color; x.fillRect(0, 0, 384, 34);
-    x.fillStyle = '#0b141c'; x.font = `700 20px ${F}`; x.textBaseline = 'middle'; x.fillText(nickOf(g) + ' · ' + (g.team ? g.team.label : ''), 12, 18);
+    x.fillStyle = U.inkHi; x.font = `700 20px ${F}`; x.textBaseline = 'middle'; x.fillText(nickOf(g) + ' · ' + (g.team ? g.team.label : ''), 12, 18);
     x.textAlign = 'right'; x.font = `700 18px ${F}`; x.fillText(hhmm(a.ts), 372, 18); x.textAlign = 'left';
-    x.fillStyle = '#1f8a45'; x.font = `700 18px ${F}`; x.fillText('● 工作中 · ' + kind, 12, 56);
-    x.fillStyle = '#14202b'; x.font = `700 24px ${F}`; wrapText(x, a.topic, 360, 2).forEach((l, i) => x.fillText(l, 12, 90 + i * 30));
-    x.fillStyle = '#4a5866'; x.font = `400 16px ${F}`; wrapText(x, a.content || '', 360, 2).forEach((l, i) => x.fillText(l, 12, 152 + i * 21));
-    if (g.pending) { x.fillStyle = '#b8700c'; x.font = `700 16px ${F}`; x.textAlign = 'right'; x.fillText(`待辦指令 ${g.pending}`, 372, 56); x.textAlign = 'left'; }
+    x.fillStyle = U.ok; x.font = `700 18px ${F}`; x.fillText('● 工作中 · ' + kind, 12, 56);
+    x.fillStyle = U.ink; x.font = `700 24px ${F}`; wrapText(x, a.topic, 360, 2).forEach((l, i) => x.fillText(l, 12, 90 + i * 30));
+    x.fillStyle = U.ink2; x.font = `400 16px ${F}`; wrapText(x, a.content || '', 360, 2).forEach((l, i) => x.fillText(l, 12, 152 + i * 21));
+    if (g.pending) { x.fillStyle = U.warn; x.font = `700 16px ${F}`; x.textAlign = 'right'; x.fillText(`待辦指令 ${g.pending}`, 372, 56); x.textAlign = 'left'; }
     scr.tex.needsUpdate = true; return;
   }
   // screensaver: a turning wind turbine, the clock and where the agent went
   scr.sig = 's';
   const away = ag.mode === 'meet' ? '開會中' : ag.mode === 'rest' ? '休息中' : ag.mode === 'patrol' ? '巡檢中' : ag.mode === 'present' ? '報告中' : ag.mode === 'record' ? '錄製中' : ag.mode === 'call' ? '通話中' : ag.mode === 'idle' ? '閒置' : '離開座位';
-  const grd = x.createLinearGradient(0, 0, 0, 216); grd.addColorStop(0, '#1f5f86'); grd.addColorStop(1, '#5fa8c8'); x.fillStyle = grd; x.fillRect(0, 0, 384, 216);
+  const grd = x.createLinearGradient(0, 0, 0, 216); grd.addColorStop(0, U.saver1); grd.addColorStop(1, U.saver2); x.fillStyle = grd; x.fillRect(0, 0, 384, 216);
   const cx = 270 + Math.sin(t * .2 + ag.phase) * 30, cy = 92;
   x.strokeStyle = 'rgba(255,255,255,.75)'; x.lineWidth = 4; x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx, 214); x.stroke();
   x.fillStyle = 'rgba(255,255,255,.9)';
   for (let k = 0; k < 3; k++) { const a = t * 1.6 + ag.phase + k * 2.094; x.save(); x.translate(cx, cy); x.rotate(a); x.beginPath(); x.moveTo(-3, 0); x.quadraticCurveTo(-6, -30, 0, -62); x.quadraticCurveTo(6, -30, 3, 0); x.fill(); x.restore(); }
   x.beginPath(); x.arc(cx, cy, 5, 0, 7); x.fill();
   x.fillStyle = color; x.font = `700 18px ${F}`; x.textBaseline = 'middle'; x.fillText(nickOf(g), 14, 26);
-  x.fillStyle = '#ffffff'; x.font = `800 40px ${F}`;
+  x.fillStyle = U.saverInk; x.font = `800 40px ${F}`;
   const now = new Date(); x.fillText(now.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }), 14, 74);
-  x.fillStyle = '#cfe2ee'; x.font = `700 18px ${F}`; x.fillText(away, 14, 120);
-  x.font = `400 15px ${F}`; x.fillStyle = '#9fb7c6';
+  x.fillStyle = U.saverInk2; x.font = `700 18px ${F}`; x.fillText(away, 14, 120);
+  x.font = `400 15px ${F}`; x.fillStyle = U.saverInk3;
   const line = ag.mode === 'meet' && g.meetMsg ? g.meetMsg.meetingTitle : ag.mode === 'rest' && ag.activity ? ag.activity : actOf(g).topic;
   wrapText(x, line, 210, 2).forEach((l, i) => x.fillText(l, 14, 150 + i * 20));
   scr.tex.needsUpdate = true;
@@ -576,45 +612,45 @@ function slideDeck() {
   }
   return deck;
 }
-function slideStatus(q) { return q.awaitingRuling ? ['待老師裁示', '#b8700c'] : q.ruling ? [RULE_ZH[q.ruling.decision] || '已裁示', q.ruling.decision === 'rejected' ? '#c0392b' : '#2c8547'] : ['已結束', '#566676']; }
+function slideStatus(q) { return q.awaitingRuling ? ['待老師裁示', U.warn] : q.ruling ? [RULE_ZH[q.ruling.decision] || '已裁示', q.ruling.decision === 'rejected' ? U.bad : U.ok] : ['已結束', U.mute]; }
 function drawSlide(x, p) {
   const q = p.q, mn = q.minutes, ag = q.agenda || {}, [stTxt, stCol] = slideStatus(q);
-  x.fillStyle = '#ffffff'; x.fillRect(0, 0, 1024, 576);
-  x.fillStyle = '#173d55'; x.fillRect(0, 0, 1024, 64);
-  x.fillStyle = '#ffffff'; x.font = `700 24px ${F}`; x.fillText(wrapText(x, '會議簡報 · ' + q.title, 700, 1)[0] || '', 32, 33);
+  x.fillStyle = U.slide; x.fillRect(0, 0, 1024, 576);
+  x.fillStyle = U.brandDark; x.fillRect(0, 0, 1024, 64);
+  x.fillStyle = U.onBrand; x.font = `700 24px ${F}`; x.fillText(wrapText(x, '會議簡報 · ' + q.title, 700, 1)[0] || '', 32, 33);
   x.font = `500 20px ${F}`; x.textAlign = 'right'; x.fillText(`${p.no} / ${p.of}`, 992, 33); x.textAlign = 'left';
-  x.fillStyle = '#d5dce3'; x.fillRect(32, 540, 960, 3); x.fillStyle = '#3f86a6'; x.fillRect(32, 540, 960 * p.no / p.of, 3);
-  const chip = (txt, col, cx, cy) => { x.font = `800 24px ${F}`; const w = x.measureText(txt).width + 40; x.fillStyle = col; x.beginPath(); x.roundRect(cx, cy - 22, w, 44, 22); x.fill(); x.fillStyle = '#fff'; x.fillText(txt, cx + 20, cy); return w; };
-  const H = (t, y = 112) => { x.fillStyle = '#14202b'; x.font = `800 40px ${F}`; x.fillText(t, 48, y); x.fillStyle = '#3f86a6'; x.fillRect(48, y + 30, 64, 5); };
+  x.fillStyle = U.line; x.fillRect(32, 540, 960, 3); x.fillStyle = U.brand; x.fillRect(32, 540, 960 * p.no / p.of, 3);
+  const chip = (txt, col, cx, cy) => { x.font = `800 24px ${F}`; const w = x.measureText(txt).width + 40; x.fillStyle = col; x.beginPath(); x.roundRect(cx, cy - 22, w, 44, 22); x.fill(); x.fillStyle = U.onBrand; x.fillText(txt, cx + 20, cy); return w; };
+  const H = (t, y = 112) => { x.fillStyle = U.ink; x.font = `800 40px ${F}`; x.fillText(t, 48, y); x.fillStyle = U.brand; x.fillRect(48, y + 30, 64, 5); };
   if (p.kind === 'cover') {
-    chip('會議結束', '#3f86a6', 48, 122); chip(stTxt, stCol, 220, 122);
-    x.fillStyle = '#14202b'; x.font = `800 50px ${F}`; wrapText(x, q.title, 920, 2).forEach((l, k) => x.fillText(l, 48, 210 + k * 64));
-    x.fillStyle = '#566676'; x.font = `500 26px ${F}`;
+    chip('會議結束', U.brand, 48, 122); chip(stTxt, stCol, 220, 122);
+    x.fillStyle = U.ink; x.font = `800 50px ${F}`; wrapText(x, q.title, 920, 2).forEach((l, k) => x.fillText(l, 48, 210 + k * 64));
+    x.fillStyle = U.mute; x.font = `500 26px ${F}`;
     x.fillText(`主持 ${ag.host ? partyName(ag.host) : '—'} · 與會 ${(ag.attendees || []).length} 人 · 發言 ${q.msgs.length} 則`, 48, 360);
     x.fillText(`決議 ${(mn.decisions || []).length} 項 · 待辦 ${(mn.actions || []).length} 項`, 48, 404);
-    if (ag.goal) { x.fillStyle = '#33414e'; x.font = `400 24px ${F}`; x.fillText(wrapText(x, '目標：' + ag.goal, 920, 1)[0] || '', 48, 460); }
+    if (ag.goal) { x.fillStyle = U.ink2; x.font = `400 24px ${F}`; x.fillText(wrapText(x, '目標：' + ag.goal, 920, 1)[0] || '', 48, 460); }
   } else if (p.kind === 'summary') {
     H('結論摘要');
-    x.fillStyle = '#33414e'; x.font = `400 30px ${F}`; wrapText(x, mn.summary, 920, 8).forEach((l, k) => x.fillText(l, 48, 198 + k * 44));
+    x.fillStyle = U.ink2; x.font = `400 30px ${F}`; wrapText(x, mn.summary, 920, 8).forEach((l, k) => x.fillText(l, 48, 198 + k * 44));
   } else if (p.kind === 'decisions') {
     H('決議' + ((mn.decisions || []).length > 4 ? `（${p.from / 4 + 1}）` : ''));
     let y = 196;
     (mn.decisions || []).slice(p.from, p.from + 4).forEach((d, k) => { const ls = wrapText(x, d, 860, 2);
-      x.fillStyle = '#3f86a6'; x.beginPath(); x.arc(66, y, 16, 0, 7); x.fill(); x.fillStyle = '#fff'; x.font = `800 18px ${F}`; x.textAlign = 'center'; x.fillText(String(p.from + k + 1), 66, y + 1); x.textAlign = 'left';
-      x.fillStyle = '#14202b'; x.font = `500 26px ${F}`; ls.forEach((l, j) => x.fillText(l, 100, y + j * 36)); y += 36 * ls.length + 32; });
+      x.fillStyle = U.brand; x.beginPath(); x.arc(66, y, 16, 0, 7); x.fill(); x.fillStyle = U.onBrand; x.font = `800 18px ${F}`; x.textAlign = 'center'; x.fillText(String(p.from + k + 1), 66, y + 1); x.textAlign = 'left';
+      x.fillStyle = U.ink; x.font = `500 26px ${F}`; ls.forEach((l, j) => x.fillText(l, 100, y + j * 36)); y += 36 * ls.length + 32; });
   } else if (p.kind === 'actions') {
     H('待辦與負責人');
     let y = 200;
     (mn.actions || []).slice(p.from, p.from + 4).forEach(ac => {
-      x.fillStyle = '#eef3f7'; x.beginPath(); x.roundRect(48, y - 34, 928, 72, 12); x.fill();
-      x.fillStyle = '#0f7f97'; x.font = `800 26px ${F}`; x.fillText(wrapText(x, partyName(ac.to), 200, 1)[0] || '—', 72, y + 2);
-      x.fillStyle = '#14202b'; x.font = `500 24px ${F}`; x.fillText(wrapText(x, ac.task || '', 640, 1)[0] || '', 300, y + 2);
-      x.fillStyle = ac.command_id ? '#2c8547' : '#b8700c'; x.font = `700 18px ${F}`; x.textAlign = 'right'; x.fillText(ac.command_id ? '已派指令' : '待派', 956, y + 2); x.textAlign = 'left';
+      x.fillStyle = U.card; x.beginPath(); x.roundRect(48, y - 34, 928, 72, 12); x.fill();
+      x.fillStyle = U.accent; x.font = `800 26px ${F}`; x.fillText(wrapText(x, partyName(ac.to), 200, 1)[0] || '—', 72, y + 2);
+      x.fillStyle = U.ink; x.font = `500 24px ${F}`; x.fillText(wrapText(x, ac.task || '', 640, 1)[0] || '', 300, y + 2);
+      x.fillStyle = ac.command_id ? U.ok : U.warn; x.font = `700 18px ${F}`; x.textAlign = 'right'; x.fillText(ac.command_id ? '已派指令' : '待派', 956, y + 2); x.textAlign = 'left';
       y += 88; });
   } else {
     H('老師裁示');
     chip(stTxt, stCol, 48, 210);
-    x.fillStyle = '#33414e'; x.font = `500 28px ${F}`;
+    x.fillStyle = U.ink2; x.font = `500 28px ${F}`;
     const n = (mn.actions || []).length;
     const lines = q.awaitingRuling ? [n ? `核准後，${n} 項待辦會各自變成一條指令，交給負責的人執行。` : '結論沒有列出待辦；要派工請在會議頁「修正後核准」。', '點這面投影幕即可「核准執行」、「修正後核准」或「不通過」（需管理登入）。']
       : q.ruling ? [q.ruling.note ? '老師說明：' + q.ruling.note : '裁示已送出。', q.ruling.decision === 'rejected' ? '主持人會依原因處理（例如重新討論）。' : '指令已派出，進度在會議頁與各人物的側欄。']
@@ -628,31 +664,31 @@ function drawProjector() {
   const deck = cur ? [] : slideDeck(), page = deck.length ? deck[(slideIndex(t) % deck.length + deck.length) % deck.length] : null;
   const sig = JSON.stringify(cur ? [cur.id, cur.msgs.length, cur.title] : page ? ['slide', page.q.id, page.kind, page.from || 0, page.of, slideStatus(page.q)[0], deck.length] : ['none', last && last.id, last && !!last.minutes]); if (sig === projSig) return; projSig = sig;
   const x = pj.ctx; pj.meetingId = cur ? cur.id : page ? page.q.id : last ? last.id : null; pj.slide = page;
-  x.fillStyle = '#f6f8fa'; x.fillRect(0, 0, 1024, 576);
+  x.fillStyle = U.paper; x.fillRect(0, 0, 1024, 576);
   x.textBaseline = 'middle';
   if (cur) {
-    x.fillStyle = '#b8700c'; x.beginPath(); x.roundRect(40, 34, 150, 52, 26); x.fill();
-    x.fillStyle = '#fff'; x.font = `800 30px ${F}`; x.fillText('會議中', 70, 61);
-    x.fillStyle = '#14202b'; x.font = `800 46px ${F}`; x.fillText(wrapText(x, cur.title, 780, 1)[0] || '', 210, 62);
-    const ag = cur.agenda || {}; x.fillStyle = '#566676'; x.font = `500 24px ${F}`;
+    x.fillStyle = U.warn; x.beginPath(); x.roundRect(40, 34, 150, 52, 26); x.fill();
+    x.fillStyle = U.onBrand; x.font = `800 30px ${F}`; x.fillText('會議中', 70, 61);
+    x.fillStyle = U.ink; x.font = `800 46px ${F}`; x.fillText(wrapText(x, cur.title, 780, 1)[0] || '', 210, 62);
+    const ag = cur.agenda || {}; x.fillStyle = U.mute; x.font = `500 24px ${F}`;
     x.fillText(`主持 ${ag.host ? partyName(ag.host) : '—'} · 與會 ${(ag.attendees || []).length} 人 · 發言 ${cur.msgs.length} 則`, 40, 118);
-    x.fillStyle = '#d5dce3'; x.fillRect(40, 146, 944, 2);
+    x.fillStyle = U.line; x.fillRect(40, 146, 944, 2);
     const recent = cur.msgs.slice(-3);
-    if (!recent.length) { x.fillStyle = '#566676'; x.font = `500 30px ${F}`; x.fillText('等待與會代理人發言…', 40, 220);
-      (ag.agenda || []).slice(0, 4).forEach((a, i) => { x.fillStyle = '#14202b'; x.font = `500 28px ${F}`; x.fillText(`${i + 1}. ${a}`, 60, 290 + i * 48); }); }
+    if (!recent.length) { x.fillStyle = U.mute; x.font = `500 30px ${F}`; x.fillText('等待與會代理人發言…', 40, 220);
+      (ag.agenda || []).slice(0, 4).forEach((a, i) => { x.fillStyle = U.ink; x.font = `500 28px ${F}`; x.fillText(`${i + 1}. ${a}`, 60, 290 + i * 48); }); }
     recent.forEach((q, i) => {
       const y = 186 + i * 128, who = q.from ? partyName(q.from) : '—';
-      x.fillStyle = q.from && q.from.team === 'HUMAN' ? '#b8700c' : '#0f7f97'; x.font = `800 28px ${F}`; x.fillText(who, 40, y);
-      x.fillStyle = '#14202b'; x.font = `400 27px ${F}`; wrapText(x, q.content, 940, 2).forEach((l, k) => x.fillText(l, 40, y + 40 + k * 36));
+      x.fillStyle = q.from && q.from.team === 'HUMAN' ? U.warn : U.accent; x.font = `800 28px ${F}`; x.fillText(who, 40, y);
+      x.fillStyle = U.ink; x.font = `400 27px ${F}`; wrapText(x, q.content, 940, 2).forEach((l, k) => x.fillText(l, 40, y + 40 + k * 36));
     });
   } else if (page) {
     drawSlide(x, page);
   } else {
-    x.fillStyle = '#14202b'; x.font = `800 52px ${F}`; x.fillText('會議室', 40, 70);
-    x.fillStyle = '#566676'; x.font = `500 30px ${F}`; x.fillText('目前沒有進行中的會議', 40, 136);
-    if (last) { x.fillStyle = '#14202b'; x.font = `700 30px ${F}`; x.fillText('上一場：' + (wrapText(x, last.title, 820, 1)[0] || ''), 40, 220);
-      x.font = `400 26px ${F}`; x.fillStyle = '#33414e'; wrapText(x, last.minutes ? last.minutes.summary : `${last.msgs.length} 則發言`, 940, 5).forEach((l, k) => x.fillText(l, 40, 274 + k * 38)); }
-    else { x.font = `400 26px ${F}`; x.fillStyle = '#33414e'; x.fillText('在看板的「會議」按「發起會議」，代理人排程執行時會來這裡發言。', 40, 220); }
+    x.fillStyle = U.ink; x.font = `800 52px ${F}`; x.fillText('會議室', 40, 70);
+    x.fillStyle = U.mute; x.font = `500 30px ${F}`; x.fillText('目前沒有進行中的會議', 40, 136);
+    if (last) { x.fillStyle = U.ink; x.font = `700 30px ${F}`; x.fillText('上一場：' + (wrapText(x, last.title, 820, 1)[0] || ''), 40, 220);
+      x.font = `400 26px ${F}`; x.fillStyle = U.ink2; wrapText(x, last.minutes ? last.minutes.summary : `${last.msgs.length} 則發言`, 940, 5).forEach((l, k) => x.fillText(l, 40, 274 + k * 38)); }
+    else { x.font = `400 26px ${F}`; x.fillStyle = U.ink2; x.fillText('在看板的「會議」按「發起會議」，代理人排程執行時會來這裡發言。', 40, 220); }
   }
   pj.tex.needsUpdate = true;
 }
@@ -662,7 +698,7 @@ function buildTableRoom(room, opt) {
   const { x0, y0, w, d } = room, g = new THREE.Group(), dx = x0 + w / 2, south = opt.door === 'S';
   const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: .8 });
   const box = (sx, sy, sz, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, -z); g.add(o); return o; };
-  floorPlane(g, x0, y0, x0 + w, y0 + d, opt.color, .16, .002);
+  floorPlane(g, x0, y0, x0 + w, y0 + d, opt.color, T.roomTint, .002);
   const doorY = south ? y0 : y0 + d, backY = south ? y0 + d : y0;
   wall(g, x0, y0, x0, y0 + d); wall(g, x0 + w, y0, x0 + w, y0 + d); wall(g, x0, backY, x0 + w, backY);
   wall(g, x0, doorY, dx - .6, doorY); wall(g, dx + .6, doorY, x0 + w, doorY);
@@ -670,7 +706,7 @@ function buildTableRoom(room, opt) {
   const sign = textPlane(opt.sign, opt.signColor, Math.min(w - .6, 5), 1.1); sign.position.set(dx, .02, -(south ? y0 + .75 : y0 + d - .75)); g.add(sign);
   // table + chairs (people sit on both long sides, facing the table)
   const n = opt.seats || 6, per = Math.ceil(n / 2), tw = Math.max(2.2, per * .85), cy = y0 + d / 2 + (south ? .25 : -.25);
-  const wood = M(0x9b7b57), dark = M(0x39414b), cloth = M(opt.color);
+  const wood = M(T.table), dark = M(T.tableLeg), cloth = M(opt.color);
   box(tw, .06, 1.0, wood, dx, .74, cy); for (const sx of [-tw / 2 + .12, tw / 2 - .12]) box(.08, .72, .8, dark, dx + sx, .36, cy);
   navRect(dx - tw / 2 - .1, cy - .55, dx + tw / 2 + .1, cy + .55, false);
   const seats = [];
@@ -681,7 +717,7 @@ function buildTableRoom(room, opt) {
     box(.46, .07, .46, cloth, sx, .45, sy); box(.46, .5, .06, cloth, sx, .72, sy + side * .23); box(.05, .42, .05, dark, sx, .22, sy);
   }
   // wall screen on the far wall, facing into the room
-  const scr = panel(opt.seats ? 2.2 : 1.8, opt.seats ? 1.24 : 1.0, 768, 432, 0x222a33);
+  const scr = panel(opt.seats ? 2.2 : 1.8, opt.seats ? 1.24 : 1.0, 768, 432, T.frame);
   scr.mesh.position.set(dx, 1.5, -(south ? y0 + d - .12 : y0 + .12)); if (!south) scr.mesh.rotation.y = Math.PI;
   scr.mesh.userData.screen = room.kind; scr.mesh.userData.roomId = room.id; g.add(scr.mesh);
   room.screen = scr; room.sig = ''; room.cap = n;
@@ -716,27 +752,27 @@ function drawRoomScreens() {
     if (r.kind === 'smallmeet') {
       const q = r.meetingId ? lastMeetings.find(m => m.id === r.meetingId) : null;
       const sig = JSON.stringify(q ? [q.id, q.title, q.msgs.length] : ['none']); if (sig === r.sig) continue; r.sig = sig;
-      x.fillStyle = '#f6f8fa'; x.fillRect(0, 0, W, H); x.textBaseline = 'middle';
-      x.fillStyle = '#14202b'; x.font = `800 40px ${F}`; x.fillText(r.label, 30, 50);
+      x.fillStyle = U.paper; x.fillRect(0, 0, W, H); x.textBaseline = 'middle';
+      x.fillStyle = U.ink; x.font = `800 40px ${F}`; x.fillText(r.label, 30, 50);
       if (q) {
-        x.fillStyle = '#b8700c'; x.beginPath(); x.roundRect(30, 96, 130, 46, 23); x.fill(); x.fillStyle = '#fff'; x.font = `800 26px ${F}`; x.fillText('會議中', 52, 120);
-        x.fillStyle = '#14202b'; x.font = `800 38px ${F}`; wrapText(x, q.title, 700, 2).forEach((l, i) => x.fillText(l, 30, 196 + i * 50));
-        const ag = q.agenda || {}; x.fillStyle = '#566676'; x.font = `500 26px ${F}`;
+        x.fillStyle = U.warn; x.beginPath(); x.roundRect(30, 96, 130, 46, 23); x.fill(); x.fillStyle = U.onBrand; x.font = `800 26px ${F}`; x.fillText('會議中', 52, 120);
+        x.fillStyle = U.ink; x.font = `800 38px ${F}`; wrapText(x, q.title, 700, 2).forEach((l, i) => x.fillText(l, 30, 196 + i * 50));
+        const ag = q.agenda || {}; x.fillStyle = U.mute; x.font = `500 26px ${F}`;
         x.fillText(`主持 ${ag.host ? partyName(ag.host) : '—'} · 與會 ${(ag.attendees || []).length} 人 · 發言 ${q.msgs.length} 則`, 30, 330);
-      } else { x.fillStyle = '#7a8794'; x.font = `600 30px ${F}`; x.fillText('目前沒有會議', 30, 200); }
+      } else { x.fillStyle = U.mute; x.font = `600 30px ${F}`; x.fillText('目前沒有會議', 30, 200); }
     } else if (r.kind === 'project') {
       const pj = lastProjects.find(q => q.id === r.pid);
       const sig = JSON.stringify(pj || ['none']); if (sig === r.sig) continue; r.sig = sig;
-      x.fillStyle = '#f4f6fd'; x.fillRect(0, 0, W, H); x.textBaseline = 'middle';
-      x.fillStyle = '#4a5bc0'; x.fillRect(0, 0, W, 64); x.fillStyle = '#fff'; x.font = `800 32px ${F}`; x.fillText('專案 · ' + (wrapText(x, pj ? pj.title : '', 560, 1)[0] || ''), 24, 34);
+      x.fillStyle = U.projPaper; x.fillRect(0, 0, W, H); x.textBaseline = 'middle';
+      x.fillStyle = U.proj; x.fillRect(0, 0, W, 64); x.fillStyle = U.onBrand; x.font = `800 32px ${F}`; x.fillText('專案 · ' + (wrapText(x, pj ? pj.title : '', 560, 1)[0] || ''), 24, 34);
       if (pj) {
-        x.fillStyle = '#2a3346'; x.font = `500 24px ${F}`; wrapText(x, pj.goal || '', 720, 3).forEach((l, i) => x.fillText(l, 24, 104 + i * 34));
-        x.fillStyle = '#566676'; x.font = `600 24px ${F}`; x.fillText(`負責人 ${pj.lead} · 成員 ${pj.members.length} 人${pj.openMeetings ? ` · 進行中會議 ${pj.openMeetings}` : ''}`, 24, 230);
+        x.fillStyle = U.projInk; x.font = `500 24px ${F}`; wrapText(x, pj.goal || '', 720, 3).forEach((l, i) => x.fillText(l, 24, 104 + i * 34));
+        x.fillStyle = U.mute; x.font = `600 24px ${F}`; x.fillText(`負責人 ${pj.lead} · 成員 ${pj.members.length} 人${pj.openMeetings ? ` · 進行中會議 ${pj.openMeetings}` : ''}`, 24, 230);
         x.font = `500 22px ${F}`; wrapText(x, pj.members.join('、'), 720, 1).forEach(l => x.fillText(l, 24, 268));
         const frac = pj.total ? pj.done / pj.total : 0;
-        x.fillStyle = '#d9def2'; x.beginPath(); x.roundRect(24, 320, 720, 28, 14); x.fill();
-        x.fillStyle = '#4a5bc0'; x.beginPath(); x.roundRect(24, 320, Math.max(28, 720 * frac), 28, 14); x.fill();
-        x.fillStyle = '#2a3346'; x.font = `700 24px ${F}`; x.fillText(pj.total ? `指令完成 ${pj.done} / ${pj.total}` : '還沒有指令', 24, 384);
+        x.fillStyle = U.projTrack; x.beginPath(); x.roundRect(24, 320, 720, 28, 14); x.fill();
+        x.fillStyle = U.proj; x.beginPath(); x.roundRect(24, 320, Math.max(28, 720 * frac), 28, 14); x.fill();
+        x.fillStyle = U.projInk; x.font = `700 24px ${F}`; x.fillText(pj.total ? `指令完成 ${pj.done} / ${pj.total}` : '還沒有指令', 24, 384);
       }
     }
     r.screen.tex.needsUpdate = true;
@@ -757,7 +793,7 @@ function buildFloor(teams, needShared, projects = []) {
   const D = 7, CORR = 2.6, GAP = .5, rooms = [];
   let x = 0;
   // 共用座位（老師 2026-11-06 指令 C202611061254343wir）：搬到南側，緊鄰 NCUT_PJ 辦公室（沒有 NCUT_PJ 就接在最後一間團隊辦公室後面）
-  const sharedRoom = needShared ? { id: 'office:__shared', kind: 'office', team: '__shared', label: '共用座位', color: css('--muted') || '#566676', pods: Math.max(1, Math.ceil((needShared + 1) / 4)), d: D, doorSide: 'N' } : null;
+  const sharedRoom = needShared ? { id: 'office:__shared', kind: 'office', team: '__shared', label: '共用座位', color: css('--muted') || U.mute, pods: Math.max(1, Math.ceil((needShared + 1) / 4)), d: D, doorSide: 'N' } : null;
   const pjAt = teams.findIndex(t => String(t.key).toLowerCase() === 'ncut_pj'), sharedAfter = pjAt >= 0 ? pjAt : teams.length - 1;
   const addOffice = r => { r.w = Math.max(7, 2.2 + r.pods * 3.4 + 1.4); r.x0 = x; r.y0 = 0; rooms.push(r); x += r.w + GAP; };
   teams.forEach((t, i) => {
@@ -776,13 +812,14 @@ function buildFloor(teams, needShared, projects = []) {
   floor = { rooms, W, D: D + CORR + Math.max(7, ...north.map(r => r.d)), extra: [], screens: new Map(), devices: new Map() };
   // base floor + corridor
   const base = new THREE.Group();
-  floorPlane(base, -1, -1, W + 1, floor.D + 1, new THREE.Color(css('--office-bg') || '#d6e0e7').offsetHSL(0, 0, -.06));
-  floorPlane(base, 0, D, W, D + CORR, 0xc9d2d9, 1, .001);
+  floorPlane(base, -1, -1, W + 1, floor.D + 1, T.ground ? new THREE.Color(T.ground) : new THREE.Color(bgColor()).offsetHSL(0, 0, -.06));
+  floorPlane(base, 0, D, W, D + CORR, new THREE.Color(T.corridor), 1, .001);
   scene.add(base); floor.extra.push(base);
   navRect(.3, D + .3, W - .3, D + CORR - .3);
   for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : r.kind === 'studio' ? buildStudio(r) : r.kind === 'lounge' ? buildLounge(r)
-    : r.kind === 'smallmeet' ? buildTableRoom(r, { door: 'S', color: 0xb88a3e, sign: `${r.label}（${r.seats} 人）`, signColor: '#a0701f', seats: r.seats })
-    : r.kind === 'project' ? buildTableRoom(r, { door: 'N', color: 0x5b6fd6, sign: '專案：' + r.label, signColor: '#4a5bc0', seats: 8 }) : buildOffice(r);
+    : r.kind === 'smallmeet' ? buildTableRoom(r, { door: 'S', color: T.rooms.meet, sign: `${r.label}（${r.seats} 人）`, signColor: T.rooms.meetSign || T.rooms.meet, seats: r.seats })
+    : r.kind === 'project' ? buildTableRoom(r, { door: 'N', color: T.rooms.project, sign: '專案：' + r.label, signColor: T.rooms.projectSign || T.rooms.project, seats: 8 }) : buildOffice(r);
+  for (const r of rooms) roomOutline(r, r.kind === 'office' ? r.color : r.kind === 'meeting' || r.kind === 'smallmeet' ? T.rooms.meet : T.rooms[r.kind]);
   // corridor waypoints for patrols
   floor.corridor = [0.15, 0.4, 0.65, 0.9].map((f, i) => ({ id: 'corr' + i, type: 'STAND', position: [W * f, D + CORR / 2, 0], yaw_deg: 0 }));
   floor.byTeam = new Map(rooms.filter(r => r.kind === 'office').map(r => [r.team, r]));
@@ -918,10 +955,10 @@ function makeBubble() {
     let t = String(text); while (t.length > 1 && ctx.measureText(t).width > 440) t = t.slice(0, -1);
     if (t !== String(text)) t += '…';
     const w = Math.min(500, ctx.measureText(t).width + 44), x0 = (512 - w) / 2;
-    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = 'rgba(20,32,43,.45)'; ctx.lineWidth = 3;
+    ctx.fillStyle = T.bubble.bg; ctx.strokeStyle = T.bubble.line; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.roundRect(x0, 4, w, 70, 22); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(244, 72); ctx.lineTo(256, 90); ctx.lineTo(268, 72); ctx.fill();
-    ctx.fillStyle = '#14202b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 256, 40);
+    ctx.fillStyle = T.bubble.ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 256, 40);
     tex.needsUpdate = true;
   };
   return b;
@@ -1110,7 +1147,7 @@ function update(groups, opts = {}) {
     const g = groups.find(x => x.teamKey === k);
     return { key: k, label: g && g.team ? g.team.label : k.toUpperCase(), color: g ? colorOf(g) : (css('--muted') || '#888'), count: counts.get(k) || 0 };
   });
-  const sig = JSON.stringify([teams.map(t => [t.key, Math.max(1, Math.ceil((t.count + 1) / 4)), t.color, t.label]), shared ? Math.ceil((shared + 1) / 4) : 0, css('--office-bg'), lastProjects.map(x => [x.id, x.title])]);
+  const sig = JSON.stringify([teams.map(t => [t.key, Math.max(1, Math.ceil((t.count + 1) / 4)), t.color, t.label]), shared ? Math.ceil((shared + 1) / 4) : 0, css('--office-bg'), themeName, lastProjects.map(x => [x.id, x.title])]);
   if (sig !== layoutSig) {
     layoutSig = sig;
     for (const ag of agents.values()) { scene.remove(ag.p.g); scene.remove(ag.label.spr); scene.remove(ag.bubble.spr); }
@@ -1144,6 +1181,9 @@ function renderLegend() {
   lt.onclick = () => { LITE = !LITE; slowHint = false; try { localStorage.setItem('cloudlog.lite', LITE ? '1' : '0'); } catch {}
     renderer.setPixelRatio(pixelRatio()); resize(); renderLegend(); };
   legend.append(lt);
+  const names = Object.keys(THEMES);
+  if (names.length > 1) { const tb = document.createElement('button'); tb.type = 'button'; tb.textContent = '風格：' + (T.label || themeName);
+    tb.title = '切換辦公室風格（只改外觀，會議、指令等功能不變）'; tb.onclick = () => setTheme(names[(names.indexOf(themeName) + 1) % names.length]); legend.append(tb); }
   if (floor) { const teamRooms = floor.rooms.filter(r => r.kind === 'office' && r.team !== '__shared').length, shared = floor.byTeam.has('__shared');
     const projRooms = floor.byProject ? floor.byProject.size : 0;
     info.textContent = box.clientWidth < 560 ? `${teamRooms} 間辦公室${projRooms ? ` · ${projRooms} 個專案` : ''} · ${agents.size} 位代理人` : `${teamRooms} 間團隊辦公室${shared ? ' ＋ 共用座位' : ''}${projRooms ? ` ＋ ${projRooms} 間專案辦公室` : ''} ＋ 3 間會議室（15／8／6 人） ＋ 茶水間${floor.lounge ? ' ＋ 休憩區' : ''} ＋ 錄課棚 · ${agents.size} 位代理人`; }
@@ -1458,7 +1498,7 @@ async function boot() {
     lib.pantryScene = pan.scene; lib.pantryNav = panNav.scene; pantryMeta = pm;
     try { const [lo, loNav, lm] = await Promise.all([loadGlb(LIB_LOUNGE + 'scene.glb'), loadGlb(LIB_LOUNGE + 'navmesh.glb'), fetch(LIB_LOUNGE + 'scene.json').then(r => r.json())]);
       lib.loungeScene = lo.scene; lib.loungeNav = loNav.scene; loungeMeta = lm; } catch (e) { console.warn('休憩區場景載入失敗，先不顯示', e); }
-    resize();
+    resize(); tintModels();
     update(lastGroups, lastOpts);
     if (window.cloudlogBridge) window.cloudlogBridge.refresh();
   } catch (e) {

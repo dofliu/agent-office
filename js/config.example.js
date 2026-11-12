@@ -15,6 +15,11 @@ window.AGENT_OFFICE_CONFIG = {
   activeHours: 2,
   idleHours: 6,
 
+  // 辦公室風格：預設用哪一個（'default' 明亮辦公室、'night' 夜間霓虹；清單與每個欄位見 js/themes.js）。
+  // 使用者在辦公室左下角按「風格」可以自己切換，瀏覽器會記住。只改外觀，會議、指令等功能不變。
+  // 想微調或加自己的風格，可以在這裡加 themes: { night: { wall: '#445588' }, mine: { label: '我的風格', … } }。
+  theme: 'default',
+
   // （可省略）代理人暱稱與 3D 外觀，以 email＋TEAM 對應；沒列到的顯示 email 的 @ 前段。
   // look：hair 髮色、style 髮型（short / spiky / long / ponytail / lowtail / twintail / bun）、shirt 衣服顏色、
   //   skin 膚色、pants 褲子、shoes 鞋子、eyes 眼睛、brows 眉毛、glasses 眼鏡、badge 識別證（true 或顏色）、height 身高倍率（0.85～1.15）。

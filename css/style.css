@@ -273,15 +273,3 @@ a.btn{text-decoration:none; display:inline-flex; align-items:center}
 .work .r-link{font-size:12px}
 details.sect > summary{cursor:pointer; font-weight:700; font-size:13px; padding:4px 0}
 .work .r-content{display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden}
-
-/* 像素平面版：2D 畫布與螢幕放大卡 */
-.office canvas[hidden]{display:none}
-.o-flat{image-rendering:pixelated}
-.o-menu.o-zoom{width:min(640px, calc(100% - 16px)); left:50%; top:50%; transform:translate(-50%,-50%)}
-.o-zoom-v{display:flex; gap:6px; align-items:flex-start; padding:8px; background:color-mix(in oklab, var(--ink) 8%, var(--surface)); border-bottom:1px solid var(--line)}
-.o-zoom-v canvas{display:block; width:auto; height:auto; min-width:0; max-width:100%; cursor:default; touch-action:auto; border-radius:6px; image-rendering:auto}
-.o-zoom .o-menu-l{flex-direction:row; flex-wrap:wrap; gap:6px; padding:8px; flex:none}
-.o-zoom .o-menu-l button{border:1px solid var(--line); border-radius:999px; padding:5px 12px}
-.o-zoom-v{cursor:zoom-in}
-.o-zoom-v.big{overflow:auto; cursor:zoom-out}
-.o-zoom-v.big canvas{flex:none !important; width:900px; max-width:none}

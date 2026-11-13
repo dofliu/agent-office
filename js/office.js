@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // Teams that get their own office, in floor order. Any other TEAM sits in the shared hot-desk room.
+import { SCENES, floorPatch, styledWall, doorFrame } from './scenes.js';
 const CFG = window.AGENT_OFFICE_CONFIG || {};
 const OFFICE_TEAMS = (CFG.officeTeams || ['DofLab', 'DofGM', 'NCUT_PJ']).map(t => String(t).replace(/^team\s+/i, '').trim().toLowerCase());
 
@@ -78,9 +79,6 @@ function classify(g) {
 
 // ---------- three setup ----------
 // 輕量模式（電腦較慢時）：解析度 1 倍、不反鋸齒、每秒最多 24 張、螢幕少更新；設定存在 localStorage，網址加 ?lite=1 也可以
-let FLAT = false;   // 像素平面版（2D 俯視）；localStorage cloudlog.flat 或網址 ?flat=1
-try { FLAT = /[?&]flat=1/.test(location.search) || (!/[?&]flat=0/.test(location.search) && localStorage.getItem('cloudlog.flat') === '1'); } catch {}
-const flat = { cv: null, ctx: null, bg: document.createElement('canvas'), dirty: true, marks: null, v: { cx: 0, cy: 0, s: 20 }, go: null, ox: 0, oy: 0, portrait: false, sprites: new Map() };
 let LITE = false;
 try { LITE = localStorage.getItem('cloudlog.lite') === '1' || /[?&]lite=1/.test(location.search); } catch {}
 const renderer = new THREE.WebGLRenderer({ antialias: !LITE });
@@ -109,7 +107,7 @@ function tintModels() {
       if (!m.userData.baseColor) m.userData.baseColor = m.color.clone();
       m.color.copy(m.userData.baseColor); if (tint) m.color.multiply(tint); } });
 }
-function applyTheme() { U = T.ui; applyLights(); setBg(); wallMat.color.set(T.wall); tintModels(); box.style.background = T.bg || ''; }
+function applyTheme() { U = T.ui; applyLights(); setBg(); scene.fog = T.fog ? new THREE.Fog(T.fog.color, T.fog.near, T.fog.far) : null; wallMat.color.set(T.wall); tintModels(); box.style.background = T.bg || ''; }
 function setTheme(name) {
   if (!THEMES[name]) name = 'default';
   themeName = name; T = mergeTheme(THEME_BASE, THEMES[name]); try { localStorage.setItem('cloudlog.theme', name); } catch {}
@@ -143,11 +141,10 @@ new ResizeObserver(resize).observe(box);
 function fit(animate = false) {   // whole floor in view; animate = fly there (重設視角, 回到全景)
   const { W, D } = floor, t = new THREE.Vector3(W / 2, 0.3, -D / 2);
   const portrait = camera.aspect < 1; lastPortrait = portrait;
-  if (FLAT) { flatGo(flatRect(-1, -1, W + 1, D + 1), animate); userMoved = false; return; }
   const dir = portrait ? new THREE.Vector3(0.62, 1.3, 0).normalize() : new THREE.Vector3(-0.06, 1.25, 0.78).normalize();
   const across = portrait ? D : W, along = portrait ? W : D;
   const vf = camera.fov * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
-  const dist = Math.max((across / 2 + (portrait ? 2.6 : 1.2)) / Math.tan(hf / 2), (along / 2 + 1.2) * 1.0 / Math.tan(vf / 2)) * (portrait ? 1.08 : 1);
+  const dist = Math.max((across / 2 + (portrait ? 2.6 : 1.2)) / Math.tan(hf / 2), (along / 2 + 1.2) * 1.0 / Math.tan(vf / 2)) * (portrait ? 1.08 : 1) * (T.viewPad || 1);
   if (animate) flyTo(t, t.clone().addScaledVector(dir, dist));
   else { fly = null; controls.target.copy(t); camera.position.copy(t).addScaledVector(dir, dist); controls.update(); }
   userMoved = false;
@@ -216,12 +213,18 @@ function prefab(names, cx, cz) {   // clone library objects into a group relativ
 }
 function wall(group, x0, y0, x1, y1) {   // axis-aligned wall segment in scene coords
   const len = Math.hypot(x1 - x0, y1 - y0); if (len < .05) return;
+  if (T.wallStyle) { styledWall(group, T.wallStyle, x0, y0, x1, y1, WALL_H, WALL_T); return; }   // 場景風格：有花紋的牆
   const m = new THREE.Mesh(new THREE.BoxGeometry(x0 === x1 ? WALL_T : len, WALL_H, x0 === x1 ? len : WALL_T), wallMat);
   m.position.set((x0 + x1) / 2, WALL_H / 2, -(y0 + y1) / 2); group.add(m);
 }
 function floorPlane(group, x0, y0, x1, y1, color, opacity = 1, lift = 0) {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, y1 - y0), new THREE.MeshStandardMaterial({ color, roughness: .95, transparent: opacity < 1, opacity }));
   m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, .005 + lift, -(y0 + y1) / 2); group.add(m); return m;
+}
+// 房間地板：場景風格先鋪花紋（榻榻米、防滑墊…），再疊一層房間顏色
+function roomFloor(g, x0, y0, x1, y1, color, opacity = T.roomTint) {
+  if (T.floor) floorPatch(g, T.floor.room, x0, y0, x1, y1, -.003);
+  return floorPlane(g, x0, y0, x1, y1, color, opacity, .002);
 }
 function textPlane(text, color, w, h) {
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 256; const x = cv.getContext('2d');
@@ -230,13 +233,13 @@ function textPlane(text, color, w, h) {
   x.fillStyle = signColor(color); x.fillText(text, 512, 132);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: T.sign.opacity, depthWrite: false }));
-  m.rotation.x = -Math.PI / 2; m.userData.sign = true; return m;
+  m.rotation.x = -Math.PI / 2; return m;
 }
 
 // A team office: `pods` desk pods (4 seats each), whiteboard on the side wall, water + plant, door facing the corridor.
 function buildOffice(room) {
   const { x0, y0, w, d, doorSide, pods, color, label } = room, g = new THREE.Group();
-  floorPlane(g, x0, y0, x0 + w, y0 + d, color, T.roomTint, .002);
+  roomFloor(g, x0, y0, x0 + w, y0 + d, color);
   const sign = textPlane(label, color, Math.min(w - 1, 6), 1.4);
   sign.position.set(x0 + w / 2, .02, -(doorSide === 'N' ? y0 + .95 : y0 + d - .95)); g.add(sign);
   const dx = x0 + w / 2, dy = doorSide === 'N' ? y0 + d : y0;
@@ -245,6 +248,7 @@ function buildOffice(room) {
   else { wall(g, x0, y0 + d, x0 + w, y0 + d); wall(g, x0, y0, dx - .6, y0); wall(g, dx + .6, y0, x0 + w, y0); }
   navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3);
   navRect(dx - .45, dy - .6, dx + .45, dy + .6);                 // through the door
+  room.doors = [[dx, dy]];
   const anchors = { seats: [], board: [], water: [], door: { position: [dx, doorSide === 'N' ? dy - .7 : dy + .7, 0], yaw_deg: 0 } };
   const podCY = y0 + d / 2 - (doorSide === 'N' ? .35 : -.35);
   for (let p = 0; p < pods; p++) {
@@ -276,6 +280,7 @@ function buildLibRoom(room, src, navSrc, meta, signText) {
   g.traverse(o => {
     if (!o.isMesh) return;
     if (/^(Ceiling|LightPanel|Frames|Projector($|_|\.)|ProjectorScreen)/.test(o.name)) o.visible = false;
+    if (T.wallStyle && /^(Wall_|Floor|DOOR_)/.test(o.name)) o.visible = false;   // 場景風格：牆與地板改用自己畫的
     if (/^Wall_/.test(o.name)) { o.geometry.computeBoundingBox(); const bb = o.geometry.boundingBox; o.scale.y = WALL_H / Math.max(.1, bb.max.y - bb.min.y); }
   });
   g.position.set(room.x0, 0, -room.y0); scene.add(g); room.group = g;
@@ -283,6 +288,12 @@ function buildLibRoom(room, src, navSrc, meta, signText) {
   const sign = textPlane(signText, css('--muted') || U.mute, 4, 1); sign.position.set(room.x0 + room.w / 2, .02, -(room.y0 + .9)); scene.add(sign); room.extra = [sign];
   const A = meta.anchors.map(a => ({ ...a, id: room.id + ':' + a.id, position: [a.position[0] + room.x0, a.position[1] + room.y0, 0] }));
   const south = meta.doors.filter(d => d.wall === 'S');
+  room.doors = south.map(d => [d.position[0] + room.x0, room.y0]);
+  if (T.wallStyle) { const sg = new THREE.Group(), { x0, y0, w, d } = room; let x = x0;
+    roomFloor(sg, x0, y0, x0 + w, y0 + d, roomColor(room) || U.mute);
+    wall(sg, x0, y0, x0, y0 + d); wall(sg, x0 + w, y0, x0 + w, y0 + d); wall(sg, x0, y0 + d, x0 + w, y0 + d);
+    for (const [dx] of [...room.doors].sort((a, b) => a[0] - b[0])) { wall(sg, x, y0, dx - .6, y0); x = dx + .6; } wall(sg, x, y0, x0 + w, y0);
+    scene.add(sg); room.extra.push(sg); }
   for (const dr of south) { const x = dr.position[0] + room.x0, y = room.y0; navRect(x - .45, y - .7, x + .45, y + .7); }
   const d0 = south[0] || meta.doors[0];
   return { A, door: { id: room.id + ':door', type: 'STAND', position: [d0.position[0] + room.x0, room.y0 - .8, 0], yaw_deg: 0 } };
@@ -389,10 +400,11 @@ function buildStudio(room) {
   const M = (c, r = .8, e) => new THREE.MeshStandardMaterial({ color: c, roughness: r, ...(e ? { emissive: e, emissiveIntensity: .9 } : {}) });
   const box = (sx, sy, sz, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, z); g.add(o); return o; };
   const cyl = (rt, rb, h, m, x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 12), m); o.position.set(x, y, z); g.add(o); return o; };
-  floorPlane(g, x0, y0, x0 + w, y0 + d, 0x3a3f4a, .55, .002);
+  roomFloor(g, x0, y0, x0 + w, y0 + d, 0x3a3f4a, .55);
   wall(g, x0, y0, x0, y0 + d); wall(g, x0 + w, y0, x0 + w, y0 + d); wall(g, x0, y0 + d, x0 + w, y0 + d);
   wall(g, x0, y0, dx - .6, y0); wall(g, dx + .6, y0, x0 + w, y0);
   navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3); navRect(dx - .45, y0 - .6, dx + .45, y0 + .6);
+  room.doors = [[dx, y0]];
   const sign = textPlane('錄課棚', T.rooms.studio, 3.2, .8); sign.position.set(x0 + w / 2, .02, -(y0 + .8)); g.add(sign);
   // acoustic foam on the inside of the north and west walls
   const foam = M(0x2a2f3a, 1);
@@ -703,11 +715,12 @@ function buildTableRoom(room, opt) {
   const { x0, y0, w, d } = room, g = new THREE.Group(), dx = x0 + w / 2, south = opt.door === 'S';
   const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: .8 });
   const box = (sx, sy, sz, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, -z); g.add(o); return o; };
-  floorPlane(g, x0, y0, x0 + w, y0 + d, opt.color, T.roomTint, .002);
+  roomFloor(g, x0, y0, x0 + w, y0 + d, opt.color);
   const doorY = south ? y0 : y0 + d, backY = south ? y0 + d : y0;
   wall(g, x0, y0, x0, y0 + d); wall(g, x0 + w, y0, x0 + w, y0 + d); wall(g, x0, backY, x0 + w, backY);
   wall(g, x0, doorY, dx - .6, doorY); wall(g, dx + .6, doorY, x0 + w, doorY);
   navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3); navRect(dx - .45, doorY - .6, dx + .45, doorY + .6);
+  room.doors = [[dx, doorY]];
   const sign = textPlane(opt.sign, opt.signColor, Math.min(w - .6, 5), 1.1); sign.position.set(dx, .02, -(south ? y0 + .75 : y0 + d - .75)); g.add(sign);
   // table + chairs (people sit on both long sides, facing the table)
   const n = opt.seats || 6, per = Math.ceil(n / 2), tw = Math.max(2.2, per * .85), cy = y0 + d / 2 + (south ? .25 : -.25);
@@ -817,15 +830,17 @@ function buildFloor(teams, needShared, projects = []) {
   floor = { rooms, W, D: D + CORR + Math.max(7, ...north.map(r => r.d)), extra: [], screens: new Map(), devices: new Map() };
   // base floor + corridor
   const base = new THREE.Group();
-  floorPlane(base, -1, -1, W + 1, floor.D + 1, T.ground ? new THREE.Color(T.ground) : new THREE.Color(bgColor()).offsetHSL(0, 0, -.06));
-  floorPlane(base, 0, D, W, D + CORR, new THREE.Color(T.corridor), 1, .001);
+  if (!T.scene) floorPlane(base, -1, -1, W + 1, floor.D + 1, T.ground ? new THREE.Color(T.ground) : new THREE.Color(bgColor()).offsetHSL(0, 0, -.06));
+  if (T.floor) floorPatch(base, T.floor.corridor, 0, D, W, D + CORR, -.003); else floorPlane(base, 0, D, W, D + CORR, new THREE.Color(T.corridor), 1, .001);
   scene.add(base); floor.extra.push(base);
   navRect(.3, D + .3, W - .3, D + CORR - .3);
   for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : r.kind === 'studio' ? buildStudio(r) : r.kind === 'lounge' ? buildLounge(r)
     : r.kind === 'smallmeet' ? buildTableRoom(r, { door: 'S', color: T.rooms.meet, sign: `${r.label}（${r.seats} 人）`, signColor: T.rooms.meetSign || T.rooms.meet, seats: r.seats })
     : r.kind === 'project' ? buildTableRoom(r, { door: 'N', color: T.rooms.project, sign: '專案：' + r.label, signColor: T.rooms.projectSign || T.rooms.project, seats: 8 }) : buildOffice(r);
   for (const r of rooms) roomOutline(r, roomColor(r));
-  flat.dirty = true; flat.marks = null;
+  // 場景風格：外面的環境（海上平台、庭園…）與每個門口的門框
+  if (T.scene && SCENES[T.scene]) { const env = SCENES[T.scene]({ W, D: floor.D, rooms }); scene.add(env.group); floor.extra.push(env.group); floor.envTick = env.tick;
+    for (const r of rooms) for (const [dx, dy] of r.doors || []) doorFrame(env.group, T.scene, dx, dy, roomColor(r) || U.mute); }
   // corridor waypoints for patrols
   floor.corridor = [0.15, 0.4, 0.65, 0.9].map((f, i) => ({ id: 'corr' + i, type: 'STAND', position: [W * f, D + CORR / 2, 0], yaw_deg: 0 }));
   floor.byTeam = new Map(rooms.filter(r => r.kind === 'office').map(r => [r.team, r]));
@@ -946,7 +961,7 @@ function makeLabel() {
     ctx.fillStyle = '#0b141c'; ctx.textBaseline = 'middle'; ctx.fillText(name, x0 + 44, 30);
     ctx.globalAlpha = 1; tex.needsUpdate = true;
   }
-  return { spr, set, cv };
+  return { spr, set };
 }
 // Speech bubble (screen-space, like the name tag) for short lines: greetings, device sounds, what someone is doing.
 function makeBubble() {
@@ -954,7 +969,7 @@ function makeBubble() {
   const ctx = cv.getContext('2d'), tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
   spr.renderOrder = 11; spr.center.set(.5, 0); spr.visible = false;
-  const b = { spr, until: 0, text: '', cv };
+  const b = { spr, until: 0, text: '' };
   b.say = (text, sec, now) => {
     b.until = now + sec; spr.visible = true; if (text === b.text) return; b.text = text;
     ctx.clearRect(0, 0, 512, 96); ctx.font = `700 34px ${F}`;
@@ -1187,7 +1202,6 @@ function renderLegend() {
   lt.onclick = () => { LITE = !LITE; slowHint = false; try { localStorage.setItem('cloudlog.lite', LITE ? '1' : '0'); } catch {}
     renderer.setPixelRatio(pixelRatio()); resize(); renderLegend(); };
   legend.append(lt);
-  const fb = document.createElement('button'); fb.type = 'button'; fb.textContent = FLAT ? '3D 立體' : '像素平面'; fb.title = '像素平面版：俯視的平面畫面，比 3D 省資源；點螢幕會放大'; fb.onclick = () => setFlat(!FLAT); legend.append(fb);
   const names = Object.keys(THEMES);
   if (names.length > 1) { const tb = document.createElement('button'); tb.type = 'button'; tb.textContent = '風格：' + (T.label || themeName);
     tb.title = '切換辦公室風格（只改外觀，會議、指令等功能不變）'; tb.onclick = () => setTheme(names[(names.indexOf(themeName) + 1) % names.length]); legend.append(tb); }
@@ -1254,6 +1268,7 @@ renderer.setAnimationLoop(() => {
   if (!LITE && !slow.shown) { if (!slow.t0) slow.t0 = nowMs; slow.n++;
     if (nowMs - slow.t0 > 5000) { slow.shown = true; if (slow.n / ((nowMs - slow.t0) / 1000) < 22) { slowHint = true; renderLegend(); } } }
   const t = clock.elapsedTime;
+  if (floor && floor.envTick) floor.envTick(t);
   if (floor) for (const dev of floor.devices.values()) {
     if (dev.runUntil && t >= dev.runUntil) { dev.runUntil = 0; devSay(dev, dev.info.done || '好了'); }
     const on = dev.runUntil > t || !!deviceUser(dev);
@@ -1282,8 +1297,7 @@ renderer.setAnimationLoop(() => {
   meetingTalk(t);
   stepFly(t);
   if (menu.el && menu.track) placeMenu();
-  if (menu.live && t - (menu.liveT || 0) > .25) { menu.liveT = t; for (const [src, dst] of menu.live) dst.getContext('2d').drawImage(src, 0, 0); }
-  if (FLAT) drawFlat(t); else { controls.update(); renderer.render(scene, camera); }
+  controls.update(); renderer.render(scene, camera);
 });
 
 // Meeting speech: one short bubble at a time, taking turns among people sitting in the meeting room.
@@ -1302,28 +1316,22 @@ function meetingTalk(t) {
 // ---------- picking + action menu ----------
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
 const menu = { el: null, track: null, below: false };
-function closeMenu() { if (menu.el) menu.el.remove(); menu.el = null; menu.track = null; menu.live = null;
+function closeMenu() { if (menu.el) menu.el.remove(); menu.el = null; menu.track = null;
   if (slideFreeze != null) { slideOff = slideFreeze - Math.floor(performance.now() / 1000 / SLIDE_S); slideFreeze = null; } }
 function placeMenu() {   // keep the menu next to the person / device it belongs to
   const el = menu.el, w = box.clientWidth, h = box.clientHeight;
-  if (menu.live) return;   // 放大卡固定在中央（CSS）
-  let x, y;
-  if (FLAT) { const q = menu.track(); [x, y] = W2S(q.x, -q.z); }
-  else { const v = menu.track().clone().project(camera); if (v.z > 1) return; x = (v.x + 1) / 2 * w; y = (1 - v.y) / 2 * h; }
-  const mw = el.offsetWidth, mh = el.offsetHeight;
+  const v = menu.track().clone().project(camera);
+  if (v.z > 1) return;
+  const x = (v.x + 1) / 2 * w, y = (1 - v.y) / 2 * h, mw = el.offsetWidth, mh = el.offsetHeight;
   let left = x + 14, top = y - mh / 2;
   if (menu.below) { left = x - mw / 2; top = y + 12; }   // under a screen, so it doesn't cover it
   else if (left + mw > w - 8) left = x - mw - 14;
   left = Math.max(8, Math.min(left, w - mw - 8)); top = Math.max(8, Math.min(top, h - mh - 8));
   el.style.left = left + 'px'; el.style.top = top + 'px';
 }
-function showMenu(title, sub, items, track, note = true, below = false, shots = null) {   // shots：像素平面版的放大卡，上方放螢幕畫面
+function showMenu(title, sub, items, track, note = true, below = false) {
   closeMenu();
-  const el = document.createElement('div'); el.className = 'o-menu' + (shots ? ' o-zoom' : ''); el.setAttribute('role', 'menu');
-  let view = null, live = null;
-  if (shots) { view = document.createElement('div'); view.className = 'o-zoom-v'; live = [];
-    for (const src of shots) { const c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.style.flex = src.width + ' 1 0'; c.getContext('2d').drawImage(src, 0, 0); view.append(c); live.push([src, c]); }
-    view.title = '點畫面可以再放大／縮回'; view.onclick = () => view.classList.toggle('big'); }
+  const el = document.createElement('div'); el.className = 'o-menu'; el.setAttribute('role', 'menu');
   const head = document.createElement('div'); head.className = 'o-menu-h';
   const b = document.createElement('b'); b.textContent = title; head.append(b);
   if (sub) { const sp = document.createElement('span'); sp.textContent = sub; head.append(sp); }
@@ -1338,9 +1346,9 @@ function showMenu(title, sub, items, track, note = true, below = false, shots = 
     list.append(bt);
   }
   const foot = document.createElement('div'); foot.className = 'o-menu-f'; foot.textContent = '只在這個畫面播放，不會寫入雲端';
-  el.append(head); if (view) el.append(view); el.append(list); if (note) el.append(foot);
+  el.append(head, list); if (note) el.append(foot);
   for (const ev of ['pointerdown', 'pointerup', 'wheel']) el.addEventListener(ev, e => e.stopPropagation());
-  box.append(el); menu.el = el; menu.track = track; menu.below = below; menu.live = live; placeMenu();
+  box.append(el); menu.el = el; menu.track = track; menu.below = below; placeMenu();
   const first = list.querySelector('button:not(:disabled)'); if (first) first.focus({ preventScroll: true });
 }
 const shortName = ag => nickOf(ag.group);
@@ -1382,7 +1390,6 @@ function stepFly(t) {
 }
 function fovs() { const vf = camera.fov * Math.PI / 180; return { vf, hf: 2 * Math.atan(Math.tan(vf / 2) * camera.aspect) }; }
 function focusPoint(p, near) {   // pan to p keeping the viewing direction; come in to `near` metres when further away
-  if (FLAT) { flatGo({ cx: p.x, cy: -p.z, s: Math.max(flat.v.s, near <= 6 ? 46 : 40) }, true); userMoved = true; return; }
   const off = camera.position.clone().sub(controls.target), d = off.length();
   const el = Math.min(1.1, Math.max(.5, Math.asin(off.y / d)));
   const flat = new THREE.Vector3(off.x, 0, off.z); if (flat.lengthSq() < 1e-6) flat.set(0, 0, 1); flat.normalize();
@@ -1398,7 +1405,6 @@ function focusFace(obj, w, h, el = .32, margin = 1.6) {   // look straight at a 
   return { c, right: new THREE.Vector3(n.z, 0, -n.x) };   // right-hand side as seen from the front
 }
 function focusRoom(r) {   // the whole room, seen from the same side as the floor overview
-  if (FLAT) { flatGo(flatRect(r.x0 - .6, r.y0 - .6, r.x0 + r.w + .6, r.y0 + r.d + .6), true); userMoved = true; return; }
   const c = new THREE.Vector3(r.x0 + r.w / 2, .4, -(r.y0 + r.d / 2)), portrait = camera.aspect < 1;
   const dir = (portrait ? new THREE.Vector3(.62, 1.3, 0) : new THREE.Vector3(-.06, 1.25, .78)).normalize();
   const across = portrait ? r.d : r.w, along = portrait ? r.w : r.d, { vf, hf } = fovs();
@@ -1425,19 +1431,12 @@ const SCREENS = {
   trial: { name: '1080p 試播投影', sub: '16:9 試播畫面', w: 2.2, h: 1.24, open: ['打開規劃頁', openPlan] },
   portrait: { name: '直立副螢幕', sub: '題目卷與解答卷並排對照', w: .36, h: .64, open: null }
 };
-function screenCanvas(kind, obj) { return kind === 'projector' ? floor.projector.cv : kind === 'kanban' ? floor.kanban.cv : kind === 'trial' ? floor.trial.cv : kind === 'portrait' ? floor.portrait.cv
-  : ((floor.rooms.find(q => q.id === obj.userData.roomId) || {}).screen || {}).cv; }
-function presentScreen(kind, obj, S, sub, items) {
-  if (FLAT) { const cv = screenCanvas(kind, obj); showMenu(S.name, sub, items, null, false, false, cv ? [cv] : null); return; }
-  const f = focusFace(obj, S.w, S.h), narrow = camera.aspect < 1;
-  showMenu(S.name, sub, items, () => narrow ? f.c.clone().setY(f.c.y - S.h / 2) : f.c.clone().addScaledVector(f.right, S.w / 2 + .15), false, narrow);
-}
 // Projector menu while it plays a meeting's slides: turn pages, open the minutes, approve the conclusion (admin).
 function projectorItems(items, kind, obj, confirm = false, msg = null) {
   if (slideFreeze == null) { slideFreeze = slideIndex(performance.now() / 1000); projSig = ''; drawProjector(); }
   const pj = floor.projector, page = pj.slide, br = window.cloudlogBridge, id = pj.meetingId;
-  const again = (c, m) => () => { const it = []; projectorItems(it, kind, obj, c, m); it.push(backItem()); const S = SCREENS.projector, pg = floor.projector.slide, fz = slideFreeze;
-    presentScreen(kind, obj, S, pg ? '會議簡報：' + pg.q.title : S.sub, it); slideFreeze = fz; return true; };
+  const again = (c, m) => () => { const it = []; projectorItems(it, kind, obj, c, m); it.push(backItem()); const S = SCREENS.projector, f = focusFace(obj, S.w, S.h), narrow = camera.aspect < 1, pg = floor.projector.slide, fz = slideFreeze;
+    showMenu(S.name, pg ? '會議簡報：' + pg.q.title : S.sub, it, () => narrow ? f.c.clone().setY(f.c.y - S.h / 2) : f.c.clone().addScaledVector(f.right, S.w / 2 + .15), false, narrow); slideFreeze = fz; return true; };
   if (msg) items.push({ label: msg.text, cls: msg.bad ? 'mut' : 'pri', disabled: true, run: () => {} });
   if (page) {
     const r = br && br.ruling ? br.ruling(page.q.id) : null;
@@ -1460,22 +1459,21 @@ function screenMenu(kind, obj) {
     S = kind === 'smallmeet' ? { name: (r.label || '會議室') + ' 螢幕', sub: r.meetingId ? '進行中的會議' : '目前沒有會議', w: 1.8, h: 1.0,
         open: r.meetingId ? ['打開會議紀錄', () => { if (window.cloudlogBridge) window.cloudlogBridge.meetings(r.meetingId); }] : null }
       : { name: '專案：' + (r.label || ''), sub: '目標、成員與指令進度', w: 2.2, h: 1.24, open: ['打開專案', () => { if (window.cloudlogBridge && window.cloudlogBridge.project) window.cloudlogBridge.project(r.pid); }] }; }
-  const items = [];
+  const f = focusFace(obj, S.w, S.h), items = [];
   if (kind === 'projector') projectorItems(items, kind, obj);
   else if (S.open) items.push({ label: S.open[0], cls: 'pri', run: S.open[1] });
   items.push(backItem());
-  const fz = slideFreeze, pg = kind === 'projector' && floor.projector.slide;
-  presentScreen(kind, obj, S, pg ? '會議簡報：' + pg.q.title : S.sub, items);
+  const narrow = camera.aspect < 1, fz = slideFreeze, pg = kind === 'projector' && floor.projector.slide;
+  showMenu(S.name, pg ? '會議簡報：' + pg.q.title : S.sub, items, () => narrow ? f.c.clone().setY(f.c.y - S.h / 2) : f.c.clone().addScaledVector(f.right, S.w / 2 + .15), false, narrow);
   if (kind === 'projector') slideFreeze = fz;
 }
 function deskScreenMenu(seatId) {   // close-up of someone's desk monitors
   const scr = floor.screens.get(seatId); if (!scr) return;
-  const ag = scr.agent, items = [];
+  const f = focusFace(scr.holders[0], .82, .46, .62, 1.9), ag = scr.agent, items = [];
   if (ag) items.push({ label: '查看紀錄與指令', cls: 'pri', run: () => { if (window.cloudlogBridge) window.cloudlogBridge.open(ag.key); } },
     { label: '讓他做…', run: () => { personMenu(ag); return true; } });
   items.push(backItem());
-  if (FLAT) { showMenu(ag ? shortName(ag) + ' 的螢幕' : '空座位', ag ? stateText(ag) : '', items, null, false, false, [scr.cv, scr.cv2]); return; }
-  const f = focusFace(scr.holders[0], .82, .46, .62, 1.9), narrow = camera.aspect < 1;
+  const narrow = camera.aspect < 1;
   showMenu(ag ? shortName(ag) + ' 的螢幕' : '空座位', ag ? stateText(ag) : '', items, () => narrow ? f.c.clone().setY(f.c.y - .25) : f.c.clone().addScaledVector(f.right, .75), false, narrow);
 }
 renderer.domElement.addEventListener('pointerup', e => {
@@ -1511,158 +1509,6 @@ renderer.domElement.addEventListener('pointerup', e => {
 });
 addEventListener('keydown', e => { if (e.key === 'Escape' && menu.el) closeMenu(); });
 
-// ---------- 像素平面版（2D 俯視）----------
-// 模擬（人物狀態、走路、房間分配、設備、螢幕內容）和 3D 共用，只有「畫」不同：
-// 背景是把 3D 樓層從正上方用低解析度拍一張（每公尺 PPM 像素，樓層或風格改變時重拍），人物、名牌、泡泡、螢幕圖示用 2D 畫。
-// 螢幕在俯視圖上看不到內容，所以點螢幕圖示會跳出放大卡（showMenu 的 shots），按鈕與 3D 的選單相同。
-const PPM = 16;
-flat.cv = document.createElement('canvas'); flat.cv.className = 'o-flat'; flat.cv.hidden = true; flat.ctx = flat.cv.getContext('2d');
-renderer.domElement.after(flat.cv);
-const W2S = (x, y) => flat.portrait ? [(y - flat.v.cy) * flat.v.s + flat.ox, (x - flat.v.cx) * flat.v.s + flat.oy] : [(x - flat.v.cx) * flat.v.s + flat.ox, (flat.v.cy - y) * flat.v.s + flat.oy];
-const S2W = (sx, sy) => flat.portrait ? [(sy - flat.oy) / flat.v.s + flat.v.cx, (sx - flat.ox) / flat.v.s + flat.v.cy] : [(sx - flat.ox) / flat.v.s + flat.v.cx, flat.v.cy - (sy - flat.oy) / flat.v.s];
-function flatLayout() { const w = box.clientWidth, h = box.clientHeight; flat.portrait = w < h; flat.ox = w / 2; flat.oy = 44 + Math.max(40, h - 108) / 2; return [w, h]; }
-function flatRect(x0, y0, x1, y1) {   // the view that shows this rectangle (scene coords)
-  const [w, h] = flatLayout(), P = flat.portrait, aw = w - 16, ah = Math.max(40, h - 108);
-  return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, s: Math.min(90, aw / (P ? y1 - y0 : x1 - x0), ah / (P ? x1 - x0 : y1 - y0)) };
-}
-function flatGo(v, animate) { if (animate) flat.go = { t0: clock.elapsedTime, from: { ...flat.v }, to: v }; else { flat.go = null; flat.v = { ...v }; } }
-function setFlat(on, quiet) {
-  FLAT = on; if (!quiet) { try { localStorage.setItem('cloudlog.flat', on ? '1' : '0'); } catch {} }
-  renderer.domElement.hidden = on; flat.cv.hidden = !on; closeMenu();
-  if (floor) { userMoved = false; fit(); } renderLegend();
-}
-// 從正上方拍一張低解析度的樓層當背景（人物、名牌、地板上的字不拍）
-function flatSnapshot() {
-  const { W, D } = floor, w = Math.round((W + 2) * PPM), h = Math.round((D + 2) * PPM);
-  const cam = new THREE.OrthographicCamera(-(W + 2) / 2, (W + 2) / 2, (D + 2) / 2, -(D + 2) / 2, .1, 100);
-  cam.position.set(W / 2, 40, -D / 2); cam.up.set(0, 0, -1); cam.lookAt(W / 2, 0, -D / 2);
-  const hid = []; scene.traverse(o => { if (o.visible && (o.isSprite || o.userData.key != null || o.userData.sign)) { o.visible = false; hid.push(o); } });
-  renderer.setPixelRatio(1); renderer.setSize(w, h, false); renderer.render(scene, cam);
-  flat.bg.width = w; flat.bg.height = h; const x = flat.bg.getContext('2d', { willReadFrequently: true }); x.drawImage(renderer.domElement, 0, 0);
-  for (const o of hid) o.visible = true;
-  try { const im = x.getImageData(0, 0, w, h), d = im.data; for (let i = 0; i < d.length; i += 4) { d[i] = Math.round(d[i] / 24) * 24; d[i + 1] = Math.round(d[i + 1] / 24) * 24; d[i + 2] = Math.round(d[i + 2] / 24) * 24; } x.putImageData(im, 0, 0); } catch {}   // 色階減少，更像像素圖
-  renderer.setPixelRatio(pixelRatio()); resize(); flat.dirty = false;
-}
-// 小人：18×24 的像素圖，依 config 的 look 上色；frame 0 站、1／2 走路、3 坐；back = 背面
-function flatSprite(ag, frame, back) {
-  const L = ag.group.look || {}, shirt = L.shirt || colorOf(ag.group), key = [L.hair, L.style, shirt, L.skin, L.pants, L.shoes, L.glasses, L.badge, frame, back].join('|');
-  let c = flat.sprites.get(key); if (c) return c;
-  c = document.createElement('canvas'); c.width = 18; c.height = 24; const x = c.getContext('2d', { willReadFrequently: true });
-  const hair = L.hair || '#3a2a20', skin = L.skin || '#f0c8a4', pants = L.pants || '#2d3640', shoes = L.shoes || '#1d2127', st = L.style || 'short';
-  const r = (col, px, py, w, h) => { x.fillStyle = col; x.fillRect(px + 1, py + 1, w, h); };
-  const leg = (px, len) => { r(pants, px, 16, 2, len); r(shoes, px - (px < 8 ? 1 : 0), 16 + len, 3, 1); };
-  if (frame === 3) { leg(5, 2); leg(9, 2); } else { leg(5, frame === 1 ? 3 : 5); leg(9, frame === 2 ? 3 : 5); }
-  r(shirt, 4, 9, 8, 7); r(shirt, 3, 10, 1, 4); r(shirt, 12, 10, 1, 4); r(skin, 3, 14, 1, 1); r(skin, 12, 14, 1, 1);
-  if (L.badge && !back) r(typeof L.badge === 'string' ? L.badge : '#3a6fd8', 10, 11, 1, 2);
-  r(skin, 4, 2, 8, 7); r(hair, 5, 1, 6, 1); r(hair, 4, 2, 8, 2); r(hair, 4, 4, 1, 2); r(hair, 11, 4, 1, 2);
-  if (back) r(hair, 4, 2, 8, 6);
-  else { r('#1b1d26', 6, 6, 1, 1); r('#1b1d26', 9, 6, 1, 1); if (L.glasses) { const g = typeof L.glasses === 'string' ? L.glasses : '#2b2f38'; r(g, 5, 6, 1, 1); r(g, 7, 6, 2, 1); r(g, 10, 6, 1, 1); } }
-  if (st === 'spiky') for (const px of [5, 7, 9]) r(hair, px, 0, 1, 1);
-  if (st === 'bun') r(hair, 7, -1, 2, 2);
-  if (st === 'long') { r(hair, 3, 3, 1, 9); r(hair, 12, 3, 1, 9); if (back) r(hair, 4, 8, 8, 4); }
-  if (st === 'ponytail') r(hair, 12, 4, 2, 6);
-  if (st === 'lowtail') r(hair, 12, 7, 2, 5);
-  if (st === 'twintail') { r(hair, 2, 4, 2, 6); r(hair, 12, 4, 2, 6); }
-  const im = x.getImageData(0, 0, 18, 24), d = im.data, edge = [];   // 深色外框
-  const op = (i, j) => i >= 0 && j >= 0 && i < 18 && j < 24 && d[(j * 18 + i) * 4 + 3] > 0;
-  for (let j = 0; j < 24; j++) for (let i = 0; i < 18; i++) if (!op(i, j) && (op(i - 1, j) || op(i + 1, j) || op(i, j - 1) || op(i, j + 1))) edge.push(i, j);
-  x.fillStyle = '#161a22'; for (let k = 0; k < edge.length; k += 2) x.fillRect(edge[k], edge[k + 1], 1, 1);
-  flat.sprites.set(key, c); return c;
-}
-function flatMarks() {   // 牆面螢幕的位置（樓層重建後算一次）
-  if (flat.marks) return flat.marks;
-  const L = [], add = (kind, obj, label) => { if (!obj) return; obj.updateWorldMatrix(true, false); const p = new THREE.Vector3().setFromMatrixPosition(obj.matrixWorld); L.push({ kind, obj, x: p.x, y: -p.z, label }); };
-  if (floor.projector) add('projector', floor.projector.mesh, '投影幕');
-  if (floor.kanban) { add('kanban', floor.kanban.mesh, '看板牆'); add('trial', floor.trial.mesh, '試播'); }
-  if (floor.portrait) add('portrait', floor.portrait.mesh, '副螢幕');
-  for (const r of floor.rooms) if (r.screen) add(r.kind, r.screen.mesh, r.kind === 'project' ? '專案看板' : '螢幕');
-  for (const scr of floor.screens.values()) { const h = scr.holders[0]; h.updateWorldMatrix(true, false); const p = new THREE.Vector3().setFromMatrixPosition(h.matrixWorld); scr.fx = p.x; scr.fy = -p.z; }
-  return (flat.marks = L);
-}
-const flatHot = m => m.kind === 'projector' ? !!floor.projector.meetingId : m.kind === 'smallmeet' ? !!(floor.rooms.find(q => q.id === m.obj.userData.roomId) || {}).meetingId : false;
-function flatPerson(ag) {   // where and how big someone is drawn
-  const gp = ag.p.g.position, [sx, sy] = W2S(gp.x, -gp.z), k = Math.max(1, Math.round(flat.v.s * 1.35 / 24 * 2) / 2);
-  return { sx, sy, k, w: 18 * k, h: 24 * k };
-}
-function drawFlat(t) {
-  if (!floor) return; if (flat.dirty) flatSnapshot();
-  const cv = flat.cv, x = flat.ctx, dpr = pixelRatio(), [w, h] = flatLayout();
-  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
-  if (flat.go) { const g = flat.go, q = Math.min(1, (t - g.t0) / .5), e = q < .5 ? 2 * q * q : 1 - Math.pow(-2 * q + 2, 2) / 2;
-    for (const n of ['cx', 'cy', 's']) flat.v[n] = g.from[n] + (g.to[n] - g.from[n]) * e; if (q >= 1) flat.go = null; }
-  const v = flat.v, P = flat.portrait, k = v.s / PPM, Y1 = floor.D + 1, narrow = w < 560;
-  x.setTransform(dpr, 0, 0, dpr, 0, 0); x.fillStyle = bgColor(); x.fillRect(0, 0, w, h);
-  x.imageSmoothingEnabled = false; x.save();
-  if (P) x.transform(0, k, -k, 0, (Y1 - v.cy) * v.s + flat.ox, (-1 - v.cx) * v.s + flat.oy); else x.transform(k, 0, 0, k, (-1 - v.cx) * v.s + flat.ox, (v.cy - Y1) * v.s + flat.oy);
-  x.drawImage(flat.bg, 0, 0); x.restore();
-  // 房間名稱（左上角）
-  x.textBaseline = 'bottom'; x.textAlign = 'left'; x.lineJoin = 'round';
-  for (const r of floor.rooms) { const a = W2S(r.x0, r.y0 + r.d), b = W2S(r.x0 + r.w, r.y0), lx = Math.min(a[0], b[0]) + 7, ly = Math.max(a[1], b[1]) - 7, rw = Math.abs(b[0] - a[0]) - 14;
-    const name = r.kind === 'meeting' ? 'B+ 大會議室' : r.kind === 'pantry' ? '茶水間' : r.kind === 'studio' ? '錄課棚' : r.kind === 'lounge' ? '休憩區' : r.kind === 'project' ? '專案：' + r.label : r.label;
-    let fs = Math.max(10, Math.min(15, v.s * .5)); x.font = `800 ${fs}px ${F}`; let txt = name; while (txt.length > 2 && x.measureText(txt).width > rw) txt = txt.slice(0, -1);
-    x.lineWidth = 3; x.strokeStyle = bgColor(); x.strokeText(txt, lx, ly); x.fillStyle = signColor(roomColor(r) || U.mute); x.fillText(txt, lx, ly); }
-  x.textBaseline = 'top';
-  // 座位螢幕：有人用時亮起（顏色＝狀態）
-  const marks = flatMarks();
-  for (const scr of floor.screens.values()) { if (!scr.agent) continue; const [sx, sy] = W2S(scr.fx, scr.fy), len = Math.max(8, v.s * .8), th = Math.max(3, v.s * .16);
-    x.fillStyle = css(STATES[scr.agent.mode].tok) || U.ok; x.globalAlpha = scr.agent.mode === 'idle' ? .35 : 1;
-    P ? x.fillRect(Math.round(sx - th / 2), Math.round(sy - len / 2), Math.round(th), Math.round(len)) : x.fillRect(Math.round(sx - len / 2), Math.round(sy - th / 2), Math.round(len), Math.round(th)); x.globalAlpha = 1; }
-  // 設備：運作中閃光
-  for (const dev of floor.devices.values()) { const on = dev.runUntil > t || !!deviceUser(dev); if (!on) continue; const [sx, sy] = W2S(dev.pos.x, -dev.pos.z);
-    x.fillStyle = '#' + new THREE.Color(dev.info.fx).getHexString(); x.globalAlpha = .45 + Math.sin(t * 5) * .2; const q = Math.round(Math.max(6, v.s * .45)); x.fillRect(Math.round(sx - q / 2), Math.round(sy - q / 2), q, q); x.globalAlpha = 1; }
-  // 牆面螢幕圖示（點了放大）
-  for (const m of marks) { const [sx, sy] = W2S(m.x, m.y), u = Math.max(2, Math.round(v.s / 14)), bw = 9 * u, bh = 7 * u, x0 = Math.round(sx - bw / 2), y0 = Math.round(sy - bh / 2), hot = flatHot(m);
-    x.fillStyle = '#10151d'; x.fillRect(x0, y0, bw, bh - 2 * u); x.fillRect(x0 + 4 * u, y0 + bh - 2 * u, u, u); x.fillRect(x0 + 2 * u, y0 + bh - u, 5 * u, u);
-    x.fillStyle = hot ? (Math.floor(t * 2) % 2 ? U.gold : U.warn) : U.dAccent; x.fillRect(x0 + u, y0 + u, bw - 2 * u, bh - 4 * u);
-    x.fillStyle = '#10151d'; x.fillRect(x0 + 2 * u, y0 + 2 * u, 3 * u, u);
-    if (v.s >= 30) { x.font = `700 10px ${F}`; x.textAlign = 'center'; x.lineWidth = 3; x.strokeStyle = bgColor(); x.strokeText(m.label, sx, y0 + bh + 2); x.fillStyle = T.tag.ink === '#14202b' ? U.mute : T.tag.ink; x.fillText(m.label, sx, y0 + bh + 2); x.textAlign = 'left'; } }
-  // 人物（由上往下畫，前面的蓋住後面的）
-  const people = [...agents.values()].map(ag => ({ ag, ...flatPerson(ag) })).sort((a, b) => a.sy - b.sy);
-  for (const q of people) { const ag = q.ag, gp = ag.p.g.position;
-    if (ag.walking && ag.fpx != null) { const [px, py] = W2S(ag.fpx, ag.fpy); if (Math.abs(q.sy - py) > Math.abs(q.sx - px) + .01) ag.fback = q.sy < py; else if (Math.abs(q.sx - px) > .01) ag.fback = false; }
-    else if (!ag.walking && ag.target) { const yaw = (((ag.target.yaw_deg || 0) % 360) + 540) % 360 - 180; ag.fback = ag.target.type === 'SEAT' && Math.abs(yaw) < 45 && !P; }
-    ag.fpx = gp.x; ag.fpy = -gp.z;
-    const frame = ag.walking ? 1 + Math.floor(t * 6 + ag.phase) % 2 : ag.seated ? 3 : 0, sp = flatSprite(ag, frame, !!ag.fback);
-    x.fillStyle = 'rgba(0,0,0,.28)'; x.fillRect(Math.round(q.sx - 5 * q.k), Math.round(q.sy - q.k), 10 * q.k, 2 * q.k);
-    x.globalAlpha = ag.mode === 'idle' && !ag.ov ? .55 : 1; x.drawImage(sp, Math.round(q.sx - q.w / 2), Math.round(q.sy - q.h + (frame === 3 ? 4 * q.k : q.k)), q.w, q.h); x.globalAlpha = 1; }
-  // 名牌與對話泡泡（沿用 3D 的圖）
-  x.imageSmoothingEnabled = true;
-  const lw = narrow ? 80 : 100, lh = lw / 4;
-  for (const q of people) { const ag = q.ag, top = q.sy - q.h + (ag.seated && !ag.walking ? 4 * q.k : 0);
-    if (showNames) x.drawImage(ag.label.cv, Math.round(q.sx - lw / 2), Math.round(top - lh - 1), lw, lh);
-    const bb = ag.bubble; if (bb.spr.visible && t > bb.until) bb.spr.visible = false;
-    if (bb.spr.visible) x.drawImage(bb.cv, Math.round(q.sx - lw), Math.round(top - (showNames ? lh : 0) - lw * 2 * 96 / 512 - 2), lw * 2, lw * 2 * 96 / 512); }
-  for (const dev of floor.devices.values()) { const [sx, sy] = W2S(dev.pos.x, -dev.pos.z);
-    if (showNames && v.s >= 38) x.drawImage(dev.tag.material.map.image, Math.round(sx - 32), Math.round(sy - v.s * .5 - 20), 64, 18);
-    if (dev.bubble && dev.bubble.spr.visible) x.drawImage(dev.bubble.cv, Math.round(sx - lw), Math.round(sy - v.s * .5 - 22 - lw * 2 * 96 / 512), lw * 2, lw * 2 * 96 / 512); }
-}
-// 點選：螢幕圖示 → 人物 → 設備 → 座位螢幕 → 房間
-function flatPick(sx, sy) {
-  if (!floor) return; const v = flat.v, near = (x, y, r) => { const p = W2S(x, y); return Math.hypot(p[0] - sx, p[1] - sy) < r; };
-  for (const m of flatMarks()) if (near(m.x, m.y, Math.max(16, v.s * .7))) { screenMenu(m.kind, m.obj); return; }
-  const lw = box.clientWidth < 560 ? 80 : 100;
-  const hit = [...agents.values()].map(ag => ({ ag, ...flatPerson(ag) })).sort((a, b) => b.sy - a.sy).find(q => (Math.abs(sx - q.sx) < Math.max(10, q.w / 2) && sy < q.sy + 4 && sy > q.sy - q.h - 2)
-    || (showNames && Math.abs(sx - q.sx) < lw / 2 && sy < q.sy - q.h && sy > q.sy - q.h - lw / 4 - 2));
-  if (hit) { focusPoint(hit.ag.p.g.position.clone().setY(1), 8); personMenu(hit.ag); return; }
-  for (const dev of floor.devices.values()) if (near(dev.pos.x, -dev.pos.z, Math.max(14, v.s * .55))) { focusPoint(dev.pos.clone().setY(.9), 6); deviceMenu(dev); return; }
-  for (const scr of floor.screens.values()) if (near(scr.fx, scr.fy, Math.max(12, v.s * .45))) { deskScreenMenu(scr.seat.id); return; }
-  const [wx, wy] = S2W(sx, sy), pt = new THREE.Vector3(wx, 0, -wy), room = floor.rooms.find(rm => inRoom(rm, pt));
-  if (room) roomMenu(room); else closeMenu();
-}
-// 拖曳平移、滾輪與雙指縮放
-{ const pts = new Map(); let moved = 0, pinch = 0;
-  const zoomAt = (sx, sy, f) => { const [wx, wy] = S2W(sx, sy); flat.go = null; flat.v.s = Math.max(6, Math.min(110, flat.v.s * f)); const [nx, ny] = S2W(sx, sy); flat.v.cx += wx - nx; flat.v.cy += wy - ny; userMoved = true; };
-  const local = e => { const r = flat.cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  flat.cv.addEventListener('pointerdown', e => { flat.cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, local(e)); if (pts.size === 1) moved = 0; pinch = 0; });
-  flat.cv.addEventListener('pointermove', e => { const p0 = pts.get(e.pointerId); if (!p0) return; const p = local(e);
-    if (pts.size === 1) { const dx = p[0] - p0[0], dy = p[1] - p0[1]; moved += Math.hypot(dx, dy);
-      if (moved > 6) { flat.go = null; userMoved = true; const s = flat.v.s; if (flat.portrait) { flat.v.cy -= dx / s; flat.v.cx -= dy / s; } else { flat.v.cx -= dx / s; flat.v.cy += dy / s; } } }
-    pts.set(e.pointerId, p);
-    if (pts.size === 2) { const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch) zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, d / pinch); pinch = d; moved = 99; } });
-  const up = e => { const p = pts.get(e.pointerId); if (!p) return; pts.delete(e.pointerId); pinch = 0; if (e.type === 'pointerup' && !pts.size && moved <= 6) flatPick(p[0], p[1]); };
-  flat.cv.addEventListener('pointerup', up); flat.cv.addEventListener('pointercancel', up);
-  flat.cv.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); zoomAt(p[0], p[1], Math.exp(-e.deltaY * .0015)); }, { passive: false }); }
-
 // ---------- boot ----------
 async function boot() {
   try {
@@ -1674,7 +1520,7 @@ async function boot() {
     lib.pantryScene = pan.scene; lib.pantryNav = panNav.scene; pantryMeta = pm;
     try { const [lo, loNav, lm] = await Promise.all([loadGlb(LIB_LOUNGE + 'scene.glb'), loadGlb(LIB_LOUNGE + 'navmesh.glb'), fetch(LIB_LOUNGE + 'scene.json').then(r => r.json())]);
       lib.loungeScene = lo.scene; lib.loungeNav = loNav.scene; loungeMeta = lm; } catch (e) { console.warn('休憩區場景載入失敗，先不顯示', e); }
-    resize(); tintModels(); setFlat(FLAT, true);
+    resize(); tintModels();
     update(lastGroups, lastOpts);
     if (window.cloudlogBridge) window.cloudlogBridge.refresh();
   } catch (e) {

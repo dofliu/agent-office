@@ -15,7 +15,7 @@ window.AGENT_OFFICE_CONFIG = {
   activeHours: 2,
   idleHours: 6,
 
-  // 辦公室風格：預設用哪一個（'default' 明亮辦公室、'night' 夜間霓虹；清單與每個欄位見 js/themes.js）。
+  // 辦公室風格：預設用哪一個（'default' 明亮辦公室、'night' 夜間霓虹、'offshore' 離岸風場運維中心、'machiya' 和風町屋；清單與每個欄位見 js/themes.js）。
   // 使用者在辦公室左下角按「風格」可以自己切換，瀏覽器會記住。只改外觀，會議、指令等功能不變。
   // 想微調或加自己的風格，可以在這裡加 themes: { night: { wall: '#445588' }, mine: { label: '我的風格', … } }。
   theme: 'default',

@@ -104,7 +104,7 @@
 |---|---|
 | 狀態的時間門檻與關鍵字 | `js/office.js` → `classify()` |
 | 樓層配置（房間、大小、順序） | `js/office.js` → `buildFloor()` |
-| 辦公室風格（背景、牆、地板、燈光、螢幕介面的顏色） | `js/themes.js`（加一組就多一種風格）；預設風格在 `js/config.js` 的 `theme` |
+| 辦公室風格（背景、牆、地板、燈光、螢幕介面的顏色） | `js/themes.js`（加一組就多一種風格）；整個場景（外面的環境、牆、地板花紋）在 `js/scenes.js`；預設風格在 `js/config.js` 的 `theme` |
 | 只讀最近幾天的檔案 | `apps-script/Code.gs` → `FEED_DAYS`（看板顯示幾天，預設 30）、`ARCHIVE_DAYS`（幾天後封存，預設 45）；改完重新部署新版本 |
 | 預設讀取間隔 | `index.html` 的讀取間隔選單 |
 

@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // Teams that get their own office, in floor order. Any other TEAM sits in the shared hot-desk room.
+import { SCENES, floorPatch, styledWall, doorFrame } from './scenes.js';
 const CFG = window.AGENT_OFFICE_CONFIG || {};
 const OFFICE_TEAMS = (CFG.officeTeams || ['DofLab', 'DofGM', 'NCUT_PJ']).map(t => String(t).replace(/^team\s+/i, '').trim().toLowerCase());
 
@@ -106,7 +107,7 @@ function tintModels() {
       if (!m.userData.baseColor) m.userData.baseColor = m.color.clone();
       m.color.copy(m.userData.baseColor); if (tint) m.color.multiply(tint); } });
 }
-function applyTheme() { U = T.ui; applyLights(); setBg(); wallMat.color.set(T.wall); tintModels(); box.style.background = T.bg || ''; }
+function applyTheme() { U = T.ui; applyLights(); setBg(); scene.fog = T.fog ? new THREE.Fog(T.fog.color, T.fog.near, T.fog.far) : null; wallMat.color.set(T.wall); tintModels(); box.style.background = T.bg || ''; }
 function setTheme(name) {
   if (!THEMES[name]) name = 'default';
   themeName = name; T = mergeTheme(THEME_BASE, THEMES[name]); try { localStorage.setItem('cloudlog.theme', name); } catch {}
@@ -143,7 +144,7 @@ function fit(animate = false) {   // whole floor in view; animate = fly there (�
   const dir = portrait ? new THREE.Vector3(0.62, 1.3, 0).normalize() : new THREE.Vector3(-0.06, 1.25, 0.78).normalize();
   const across = portrait ? D : W, along = portrait ? W : D;
   const vf = camera.fov * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
-  const dist = Math.max((across / 2 + (portrait ? 2.6 : 1.2)) / Math.tan(hf / 2), (along / 2 + 1.2) * 1.0 / Math.tan(vf / 2)) * (portrait ? 1.08 : 1);
+  const dist = Math.max((across / 2 + (portrait ? 2.6 : 1.2)) / Math.tan(hf / 2), (along / 2 + 1.2) * 1.0 / Math.tan(vf / 2)) * (portrait ? 1.08 : 1) * (T.viewPad || 1);
   if (animate) flyTo(t, t.clone().addScaledVector(dir, dist));
   else { fly = null; controls.target.copy(t); camera.position.copy(t).addScaledVector(dir, dist); controls.update(); }
   userMoved = false;
@@ -196,6 +197,7 @@ const wallMat = new THREE.MeshStandardMaterial({ color: 0xe9ecef, roughness: .9 
 applyTheme();
 const signColor = c => { const k = new THREE.Color(c); return T.sign.amount ? '#' + k.lerp(new THREE.Color(T.sign.tint), T.sign.amount).getHexString() : '#' + k.getHexString(); };
 // 房間地板外框的發光線（風格的 outline > 0 時才畫）
+const roomColor = r => r.kind === 'office' ? r.color : r.kind === 'meeting' || r.kind === 'smallmeet' ? T.rooms.meet : T.rooms[r.kind];
 function roomOutline(r, color) {
   const wd = T.outline; if (!wd || !color) return;
   const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({ color: new THREE.Color(color) }), i = .16;
@@ -211,12 +213,18 @@ function prefab(names, cx, cz) {   // clone library objects into a group relativ
 }
 function wall(group, x0, y0, x1, y1) {   // axis-aligned wall segment in scene coords
   const len = Math.hypot(x1 - x0, y1 - y0); if (len < .05) return;
+  if (T.wallStyle) { styledWall(group, T.wallStyle, x0, y0, x1, y1, WALL_H, WALL_T); return; }   // 場景風格：有花紋的牆
   const m = new THREE.Mesh(new THREE.BoxGeometry(x0 === x1 ? WALL_T : len, WALL_H, x0 === x1 ? len : WALL_T), wallMat);
   m.position.set((x0 + x1) / 2, WALL_H / 2, -(y0 + y1) / 2); group.add(m);
 }
 function floorPlane(group, x0, y0, x1, y1, color, opacity = 1, lift = 0) {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, y1 - y0), new THREE.MeshStandardMaterial({ color, roughness: .95, transparent: opacity < 1, opacity }));
   m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, .005 + lift, -(y0 + y1) / 2); group.add(m); return m;
+}
+// 房間地板：場景風格先鋪花紋（榻榻米、防滑墊…），再疊一層房間顏色
+function roomFloor(g, x0, y0, x1, y1, color, opacity = T.roomTint) {
+  if (T.floor) floorPatch(g, T.floor.room, x0, y0, x1, y1, -.003);
+  return floorPlane(g, x0, y0, x1, y1, color, opacity, .002);
 }
 function textPlane(text, color, w, h) {
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 256; const x = cv.getContext('2d');
@@ -231,7 +239,7 @@ function textPlane(text, color, w, h) {
 // A team office: `pods` desk pods (4 seats each), whiteboard on the side wall, water + plant, door facing the corridor.
 function buildOffice(room) {
   const { x0, y0, w, d, doorSide, pods, color, label } = room, g = new THREE.Group();
-  floorPlane(g, x0, y0, x0 + w, y0 + d, color, T.roomTint, .002);
+  roomFloor(g, x0, y0, x0 + w, y0 + d, color);
   const sign = textPlane(label, color, Math.min(w - 1, 6), 1.4);
   sign.position.set(x0 + w / 2, .02, -(doorSide === 'N' ? y0 + .95 : y0 + d - .95)); g.add(sign);
   const dx = x0 + w / 2, dy = doorSide === 'N' ? y0 + d : y0;
@@ -240,6 +248,7 @@ function buildOffice(room) {
   else { wall(g, x0, y0 + d, x0 + w, y0 + d); wall(g, x0, y0, dx - .6, y0); wall(g, dx + .6, y0, x0 + w, y0); }
   navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3);
   navRect(dx - .45, dy - .6, dx + .45, dy + .6);                 // through the door
+  room.doors = [[dx, dy]];
   const anchors = { seats: [], board: [], water: [], door: { position: [dx, doorSide === 'N' ? dy - .7 : dy + .7, 0], yaw_deg: 0 } };
   const podCY = y0 + d / 2 - (doorSide === 'N' ? .35 : -.35);
   for (let p = 0; p < pods; p++) {
@@ -271,6 +280,7 @@ function buildLibRoom(room, src, navSrc, meta, signText) {
   g.traverse(o => {
     if (!o.isMesh) return;
     if (/^(Ceiling|LightPanel|Frames|Projector($|_|\.)|ProjectorScreen)/.test(o.name)) o.visible = false;
+    if (T.wallStyle && /^(Wall_|Floor|DOOR_)/.test(o.name)) o.visible = false;   // 場景風格：牆與地板改用自己畫的
     if (/^Wall_/.test(o.name)) { o.geometry.computeBoundingBox(); const bb = o.geometry.boundingBox; o.scale.y = WALL_H / Math.max(.1, bb.max.y - bb.min.y); }
   });
   g.position.set(room.x0, 0, -room.y0); scene.add(g); room.group = g;
@@ -278,6 +288,12 @@ function buildLibRoom(room, src, navSrc, meta, signText) {
   const sign = textPlane(signText, css('--muted') || U.mute, 4, 1); sign.position.set(room.x0 + room.w / 2, .02, -(room.y0 + .9)); scene.add(sign); room.extra = [sign];
   const A = meta.anchors.map(a => ({ ...a, id: room.id + ':' + a.id, position: [a.position[0] + room.x0, a.position[1] + room.y0, 0] }));
   const south = meta.doors.filter(d => d.wall === 'S');
+  room.doors = south.map(d => [d.position[0] + room.x0, room.y0]);
+  if (T.wallStyle) { const sg = new THREE.Group(), { x0, y0, w, d } = room; let x = x0;
+    roomFloor(sg, x0, y0, x0 + w, y0 + d, roomColor(room) || U.mute);
+    wall(sg, x0, y0, x0, y0 + d); wall(sg, x0 + w, y0, x0 + w, y0 + d); wall(sg, x0, y0 + d, x0 + w, y0 + d);
+    for (const [dx] of [...room.doors].sort((a, b) => a[0] - b[0])) { wall(sg, x, y0, dx - .6, y0); x = dx + .6; } wall(sg, x, y0, x0 + w, y0);
+    scene.add(sg); room.extra.push(sg); }
   for (const dr of south) { const x = dr.position[0] + room.x0, y = room.y0; navRect(x - .45, y - .7, x + .45, y + .7); }
   const d0 = south[0] || meta.doors[0];
   return { A, door: { id: room.id + ':door', type: 'STAND', position: [d0.position[0] + room.x0, room.y0 - .8, 0], yaw_deg: 0 } };
@@ -384,10 +400,11 @@ function buildStudio(room) {
   const M = (c, r = .8, e) => new THREE.MeshStandardMaterial({ color: c, roughness: r, ...(e ? { emissive: e, emissiveIntensity: .9 } : {}) });
   const box = (sx, sy, sz, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, z); g.add(o); return o; };
   const cyl = (rt, rb, h, m, x, y, z) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 12), m); o.position.set(x, y, z); g.add(o); return o; };
-  floorPlane(g, x0, y0, x0 + w, y0 + d, 0x3a3f4a, .55, .002);
+  roomFloor(g, x0, y0, x0 + w, y0 + d, 0x3a3f4a, .55);
   wall(g, x0, y0, x0, y0 + d); wall(g, x0 + w, y0, x0 + w, y0 + d); wall(g, x0, y0 + d, x0 + w, y0 + d);
   wall(g, x0, y0, dx - .6, y0); wall(g, dx + .6, y0, x0 + w, y0);
   navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3); navRect(dx - .45, y0 - .6, dx + .45, y0 + .6);
+  room.doors = [[dx, y0]];
   const sign = textPlane('錄課棚', T.rooms.studio, 3.2, .8); sign.position.set(x0 + w / 2, .02, -(y0 + .8)); g.add(sign);
   // acoustic foam on the inside of the north and west walls
   const foam = M(0x2a2f3a, 1);
@@ -698,11 +715,12 @@ function buildTableRoom(room, opt) {
   const { x0, y0, w, d } = room, g = new THREE.Group(), dx = x0 + w / 2, south = opt.door === 'S';
   const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: .8 });
   const box = (sx, sy, sz, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); o.position.set(x, y, -z); g.add(o); return o; };
-  floorPlane(g, x0, y0, x0 + w, y0 + d, opt.color, T.roomTint, .002);
+  roomFloor(g, x0, y0, x0 + w, y0 + d, opt.color);
   const doorY = south ? y0 : y0 + d, backY = south ? y0 + d : y0;
   wall(g, x0, y0, x0, y0 + d); wall(g, x0 + w, y0, x0 + w, y0 + d); wall(g, x0, backY, x0 + w, backY);
   wall(g, x0, doorY, dx - .6, doorY); wall(g, dx + .6, doorY, x0 + w, doorY);
   navRect(x0 + .3, y0 + .3, x0 + w - .3, y0 + d - .3); navRect(dx - .45, doorY - .6, dx + .45, doorY + .6);
+  room.doors = [[dx, doorY]];
   const sign = textPlane(opt.sign, opt.signColor, Math.min(w - .6, 5), 1.1); sign.position.set(dx, .02, -(south ? y0 + .75 : y0 + d - .75)); g.add(sign);
   // table + chairs (people sit on both long sides, facing the table)
   const n = opt.seats || 6, per = Math.ceil(n / 2), tw = Math.max(2.2, per * .85), cy = y0 + d / 2 + (south ? .25 : -.25);
@@ -812,14 +830,17 @@ function buildFloor(teams, needShared, projects = []) {
   floor = { rooms, W, D: D + CORR + Math.max(7, ...north.map(r => r.d)), extra: [], screens: new Map(), devices: new Map() };
   // base floor + corridor
   const base = new THREE.Group();
-  floorPlane(base, -1, -1, W + 1, floor.D + 1, T.ground ? new THREE.Color(T.ground) : new THREE.Color(bgColor()).offsetHSL(0, 0, -.06));
-  floorPlane(base, 0, D, W, D + CORR, new THREE.Color(T.corridor), 1, .001);
+  if (!T.scene) floorPlane(base, -1, -1, W + 1, floor.D + 1, T.ground ? new THREE.Color(T.ground) : new THREE.Color(bgColor()).offsetHSL(0, 0, -.06));
+  if (T.floor) floorPatch(base, T.floor.corridor, 0, D, W, D + CORR, -.003); else floorPlane(base, 0, D, W, D + CORR, new THREE.Color(T.corridor), 1, .001);
   scene.add(base); floor.extra.push(base);
   navRect(.3, D + .3, W - .3, D + CORR - .3);
   for (const r of rooms) r.kind === 'meeting' ? buildMeeting(r) : r.kind === 'pantry' ? buildPantry(r) : r.kind === 'studio' ? buildStudio(r) : r.kind === 'lounge' ? buildLounge(r)
     : r.kind === 'smallmeet' ? buildTableRoom(r, { door: 'S', color: T.rooms.meet, sign: `${r.label}（${r.seats} 人）`, signColor: T.rooms.meetSign || T.rooms.meet, seats: r.seats })
     : r.kind === 'project' ? buildTableRoom(r, { door: 'N', color: T.rooms.project, sign: '專案：' + r.label, signColor: T.rooms.projectSign || T.rooms.project, seats: 8 }) : buildOffice(r);
-  for (const r of rooms) roomOutline(r, r.kind === 'office' ? r.color : r.kind === 'meeting' || r.kind === 'smallmeet' ? T.rooms.meet : T.rooms[r.kind]);
+  for (const r of rooms) roomOutline(r, roomColor(r));
+  // 場景風格：外面的環境（海上平台、庭園…）與每個門口的門框
+  if (T.scene && SCENES[T.scene]) { const env = SCENES[T.scene]({ W, D: floor.D, rooms }); scene.add(env.group); floor.extra.push(env.group); floor.envTick = env.tick;
+    for (const r of rooms) for (const [dx, dy] of r.doors || []) doorFrame(env.group, T.scene, dx, dy, roomColor(r) || U.mute); }
   // corridor waypoints for patrols
   floor.corridor = [0.15, 0.4, 0.65, 0.9].map((f, i) => ({ id: 'corr' + i, type: 'STAND', position: [W * f, D + CORR / 2, 0], yaw_deg: 0 }));
   floor.byTeam = new Map(rooms.filter(r => r.kind === 'office').map(r => [r.team, r]));
@@ -1247,6 +1268,7 @@ renderer.setAnimationLoop(() => {
   if (!LITE && !slow.shown) { if (!slow.t0) slow.t0 = nowMs; slow.n++;
     if (nowMs - slow.t0 > 5000) { slow.shown = true; if (slow.n / ((nowMs - slow.t0) / 1000) < 22) { slowHint = true; renderLegend(); } } }
   const t = clock.elapsedTime;
+  if (floor && floor.envTick) floor.envTick(t);
   if (floor) for (const dev of floor.devices.values()) {
     if (dev.runUntil && t >= dev.runUntil) { dev.runUntil = 0; devSay(dev, dev.info.done || '好了'); }
     const on = dev.runUntil > t || !!deviceUser(dev);

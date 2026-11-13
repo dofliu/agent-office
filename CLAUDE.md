@@ -45,6 +45,7 @@
 | 2026-11-06 | 阿誠依老師指令 `C202611061254343wir`（辦公室空間整理）：茶水間兩個咖啡機互動點與模型移除；共用座位從北側搬到南側、緊鄰 NCUT_PJ 辦公室；走廊兩端的電話亭移除（「通話」狀態的人改在座位上講，選單拿掉「進電話亭」）。 |
 | 2026-11-12 | 老師想換辦公室風格（協作功能不動）：先做**風格層**（`js/themes.js`：背景、牆、地板、燈光、模型色調、螢幕介面配色都抽成設定），再做第二個風格**夜間霓虹**；辦公室左下角「風格」按鈕切換。像素風平面版（C）老師也想做，但螢幕與看板牆怎麼呈現要先討論（`roadmap.md` 第 6 項）。 |
 | 2026-11-13 | 像素風平面版（2026-11-12 做過一版：俯視低解析度背景＋像素小人，螢幕點了才放大）老師看了覺得很失敗，**整個移除，不要再做**。老師改要「其他 3D 風格」：重新繪製其他場景來切換。 |
+| 2026-11-13 | 依老師選擇加入兩個**場景風格**（`js/scenes.js`，全部用程式畫）：**離岸風場運維中心**（海上平台、海面、風機、直升機甲板、吊車、備用葉片、運維船，艙壁牆與黃色艙門框）與**和風町屋**（緣側木地板、榻榻米、紙拉門、瓦片屋簷、暖簾門框，外面是枯山水庭園、錦鯉池、松楓櫻）。房間配置、家具、人物與協作不變。 |
 
 舊版 claude.ai Artifact（`https://claude.ai/artifact/6zV4j8gVgbfCRocGtMUxtk`，私人）**已由本 repo 取代**，不要再在那邊加功能。
 
@@ -63,6 +64,7 @@
 GitHub Pages：index.html
   ├ js/config.js  設定（含代理人暱稱與外觀；別人自架時用 js/config.example.js 取代）
   ├ js/themes.js  辦公室風格（配色、燈光、螢幕介面；只改外觀）
+  ├ js/scenes.js  場景風格的畫法（離岸風場運維中心、和風町屋；office.js 以模組匯入）
   ├ js/plan.js    辦公環境規劃（會議結論整理，待老闆裁示）
   ├ js/app.js     讀資料、模型、圓框檢視、側欄、會議／指令／管理 UI、管理登入
   └ js/office.js  Three.js 3D 樓層（場景從 indoor-scenes main 直接讀）
@@ -116,6 +118,7 @@ GitHub Pages：index.html
 - **工作進度卡**：人物側欄最上面的「工作進度」由 `workItems()` 把同一件工作（依 `refs.command_id`，其次 `meeting_id`，再其次主題）的工作紀錄與指令回報合成一張卡：最新階段（含自報）、最新內容、下一步、成果連結、階段轉折時間線；原始紀錄收在下方。
 - **重繪與輸入**：資料同步、每 30 秒、視窗大小改變都會 `render()`；側欄在有輸入框聚焦時不重畫（`drawerTyping()`，含 password），密碼輸入中的字存在 `pwDraft`。手機跳出鍵盤會觸發 resize，所以這兩個保護缺一不可。
 - **風格**（2026-11-12）：`js/themes.js` 的 `AGENT_OFFICE_THEMES`，每個風格只寫和 `default` 不同的欄位（`office.js` 的 `mergeTheme()` 補齊）。`T` 是目前風格、`U` = `T.ui` 是螢幕畫面的配色；`office.js` 裡畫螢幕的顏色一律用 `U.ink`、`U.paper` 這類代號，**不要再寫死色碼**。選擇順序：網址 `?theme=`、localStorage `cloudlog.theme`、`config.js` 的 `theme`。`setTheme()` 套用燈光、背景、牆色與模型色調（`tintModels()`，場景庫材質共用，記原色再相乘），然後重建樓層。`outline > 0` 時每間房間地板畫發光外框（`roomOutline()`）。人物外觀、名牌、狀態顏色、頁面本身的淺色／深色不屬於風格。`default` 的 `bg: null` 表示背景跟著頁面的淺色／深色。新增風格只改 `themes.js`，改完要在桌機與手機各看一次全景與螢幕特寫。
+- **場景風格**（2026-11-13）：風格有 `scene` 欄位時是整個場景。`themes.js` 多了 `scene`（`scenes.js` 的 `SCENES` 名稱）、`fog`、`wallStyle{tex,cap,post}`、`floor{room,corridor}`、`viewPad`。`office.js`：`wall()` 改呼叫 `styledWall()`；`roomFloor()` 先鋪花紋再疊房間顏色；`buildLibRoom()` 把場景庫房間的 `Wall_*`／`Floor`／`DOOR_*` 隱藏、自己畫牆（南側依 `meta.doors` 留門）與地板；`buildFloor()` 不畫原本的底板，改呼叫 `SCENES[T.scene]({W, D, rooms})` 取得環境（`group` 與每張畫面呼叫的 `tick(t)`，存在 `floor.envTick`），並在每個 `room.doors` 加 `doorFrame()`。花紋（`PATTERNS`：tatami、planks、shoji、deck、bulkhead、sea…）是 canvas 重複貼圖。**視角限制**：橫式鏡頭在南邊上方往北看、直式在東邊上方往西看，所以高的東西只能放北邊與西邊；預設視角俯角大，看不到遠方地平線（風機要拖曳旋轉才看得到全貌，所以平台旁另放了兩支較小的近景風機）。家具仍是場景庫模型，只用 `modelTint` 染色；像素平面版已取消，不要再做。
 - **效能**：`office.js` 的輕量模式（localStorage `cloudlog.lite` 或網址 `?lite=1`）；3D 捲出畫面（IntersectionObserver）或分頁隱藏時不畫。
 - **資料**：`app.js` 的 `sync()` 每 N 分鐘（預設 5）GET 一次 `config.endpoint`，localStorage 存一份快取（`agentoffice.cache.v1`）。
 - **人物狀態**（`office.js` 的 `classify()`）：依「最新一筆工作」判斷：`app.js` 的 `a.act` 取工作紀錄、該代理人的指令回報（ack）、會議發言三者中最新的一筆。最近 45 分鐘內在會議發過言 → 開會；最新工作超過 `idleHours`（預設 6）小時 → 閒置；`activeHours`（預設 2）到 6 小時 → 休息；45 分鐘到 2 小時 → 工作中（坐在座位，螢幕顯示那筆工作的主題、內容與時間，回報會標「回報指令・進行中」等）；45 分鐘內依關鍵字分成通話（視訊、電話、訪談、zoom…，在座位上講）、開會、錄製（錄影、錄音、旁白、拍攝、Shorts…，去錄課棚）、巡檢、報告，其餘為工作中。休息的人多半坐在座位喝東西，每 40～150 秒起身一次：約四成去休憩區（坐沙發、懶骨頭、打撞球、手足球，`restPhase` 為 `lounge`／`game`），其餘去茶水間用設備、約三成留下聊天，再回座位（老師 2026-11-03 反映大家都擠在茶水間，因此改成這樣）。門檻在 `config.js` 的 `activeHours`、`idleHours`，關鍵字是暫定值。

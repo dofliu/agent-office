@@ -67,6 +67,7 @@ GitHub Pages：index.html ＋ js/*.js（靜態網頁，每 5 分鐘讀一次）
 | `js/app.js` | 讀資料、統計、圓框、側欄、會議／指令／管理 |
 | `js/office.js` | Three.js 3D 樓層、人物、螢幕、設備與互動 |
 | `js/themes.js` | 辦公室風格（配色、燈光、螢幕介面）；左下角「風格」按鈕切換，只改外觀 |
+| `js/scenes.js` | 場景風格的畫法：離岸風場運維中心（海上平台、風機）、和風町屋（庭園、紙拉門、榻榻米） |
 | `apps-script/Code.gs` | Google Apps Script 資料來源（GET 讀、POST 寫） |
 | `apps-script/appsscript.json` | Apps Script 專案設定（固定完整 Drive 權限，避免只授權到讀取） |
 | `skills/` | 兩個代理人技能的副本（雲端紀錄、雲端會議） |
